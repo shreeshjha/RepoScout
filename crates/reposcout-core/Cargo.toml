@@ -1,0 +1,28 @@
+[package]
+name = "reposcout-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+reposcout-api = { path = "../reposcout-api" }
+reposcout-cache = { path = "../reposcout-cache" }
+
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+toml = { workspace = true }
+async-trait = "0.1"
+futures = "0.3"
+dirs = "5.0"
+
+[dev-dependencies]
+mockall = { workspace = true }

@@ -1,0 +1,23 @@
+[package]
+name = "reposcout-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "reposcout"
+path = "src/main.rs"
+
+[dependencies]
+reposcout-core = { path = "../reposcout-core" }
+reposcout-tui = { path = "../reposcout-tui" }
+
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }

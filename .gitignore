@@ -1,0 +1,46 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Cargo.lock for library crates - binary keeps it
+# We're a binary, so we'll keep Cargo.lock
+# /Cargo.lock
+
+# IDE stuff
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing artifacts
+*.profraw
+*.profdata
+
+# Environment files - never commit secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Database files - cache is local
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# OS junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE_BIN/
+
+# Backup files
+*.bak
+*.tmp
+*.temp

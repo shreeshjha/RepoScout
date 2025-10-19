@@ -1,0 +1,57 @@
+[workspace]
+members = [
+    "crates/reposcout-cli",
+    "crates/reposcout-core",
+    "crates/reposcout-tui",
+    "crates/reposcout-api",
+    "crates/reposcout-cache",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70.0"
+authors = ["Shreesh Jha"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/shreeshjha/RepoScout"
+homepage = "https://github.com/shreeshjha/RepoScout"
+
+[workspace.dependencies]
+# Async runtime - because blocking in 2025 is a crime
+tokio = { version = "1.41", features = ["full"] }
+# HTTP client - tried curl, never going back
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# Serialization - JSON is life
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Error handling - goodbye .unwrap() hell
+thiserror = "2.0"
+anyhow = "1.0"
+# Logging - printf debugging is for chumps
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# CLI argument parsing - clap is king
+clap = { version = "4.5", features = ["derive", "cargo"] }
+# Terminal UI - ratatui for that slick interface
+ratatui = "0.29"
+crossterm = "0.28"
+# Database - SQLite because it just works
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Config management
+config = "0.14"
+toml = "0.8"
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+# Testing utilities
+mockall = "0.13"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.dev]
+# Faster compile times during dev because waiting is boring
+incremental = true

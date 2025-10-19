@@ -1,0 +1,29 @@
+#!/bin/bash
+# Pre-commit hook to catch the obvious mistakes before they embarrass you
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Format check
+echo "📝 Checking code formatting..."
+if ! cargo fmt --all -- --check; then
+    echo "❌ Code formatting failed. Run 'cargo fmt' to fix."
+    exit 1
+fi
+
+# Clippy check
+echo "🔍 Running clippy..."
+if ! cargo clippy --all-targets --all-features -- -D warnings; then
+    echo "❌ Clippy found issues. Fix them before committing."
+    exit 1
+fi
+
+# Run tests
+echo "🧪 Running tests..."
+if ! cargo test --quiet; then
+    echo "❌ Tests failed. Fix them before committing."
+    exit 1
+fi
+
+echo "✅ All checks passed! Proceeding with commit..."
