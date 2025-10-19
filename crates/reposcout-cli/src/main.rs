@@ -26,6 +26,26 @@ enum Commands {
         /// Number of results to show
         #[arg(short = 'n', long, default_value = "10")]
         limit: usize,
+
+        /// Filter by programming language (e.g., rust, python, go)
+        #[arg(short = 'l', long)]
+        language: Option<String>,
+
+        /// Minimum number of stars
+        #[arg(long)]
+        min_stars: Option<u32>,
+
+        /// Maximum number of stars
+        #[arg(long)]
+        max_stars: Option<u32>,
+
+        /// Filter by pushed date (e.g., >2024-01-01, <2023-12-31)
+        #[arg(long)]
+        pushed: Option<String>,
+
+        /// Sort by: stars, forks, updated (default: stars)
+        #[arg(short = 's', long, default_value = "stars")]
+        sort: String,
     },
     /// Show repository details
     Show {
@@ -63,8 +83,26 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Search { query, limit }) => {
-            search_repositories(&query, limit, cli.github_token).await?;
+        Some(Commands::Search {
+            query,
+            limit,
+            language,
+            min_stars,
+            max_stars,
+            pushed,
+            sort,
+        }) => {
+            search_repositories(
+                &query,
+                limit,
+                language,
+                min_stars,
+                max_stars,
+                pushed,
+                &sort,
+                cli.github_token,
+            )
+            .await?;
         }
         Some(Commands::Show { name }) => {
             show_repository(&name, cli.github_token).await?;
@@ -80,8 +118,19 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn search_repositories(query: &str, limit: usize, token: Option<String>) -> anyhow::Result<()> {
-    tracing::info!("Searching for: {}", query);
+async fn search_repositories(
+    query: &str,
+    limit: usize,
+    language: Option<String>,
+    min_stars: Option<u32>,
+    max_stars: Option<u32>,
+    pushed: Option<String>,
+    sort: &str,
+    token: Option<String>,
+) -> anyhow::Result<()> {
+    // Build GitHub search query with filters
+    let search_query = build_github_query(query, language, min_stars, max_stars, pushed);
+    tracing::info!("Searching for: {}", search_query);
 
     // Initialize cache
     let cache_path = get_cache_path()?;
@@ -90,7 +139,10 @@ async fn search_repositories(query: &str, limit: usize, token: Option<String>) -
     let mut engine = CachedSearchEngine::with_cache(cache);
     engine.add_provider(Box::new(GitHubProvider::new(token)));
 
-    let results = engine.search(query).await?;
+    let mut results = engine.search(&search_query).await?;
+
+    // Sort results based on user preference
+    sort_results(&mut results, sort);
 
     if results.is_empty() {
         println!("No repositories found for '{}'", query);
@@ -192,6 +244,48 @@ async fn handle_cache_command(action: CacheAction) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Build GitHub search query with filters
+///
+/// GitHub uses special syntax like "language:rust stars:>1000"
+/// We build this query string based on user filters
+fn build_github_query(
+    query: &str,
+    language: Option<String>,
+    min_stars: Option<u32>,
+    max_stars: Option<u32>,
+    pushed: Option<String>,
+) -> String {
+    let mut parts = vec![query.to_string()];
+
+    if let Some(lang) = language {
+        parts.push(format!("language:{}", lang));
+    }
+
+    // GitHub stars filter syntax
+    match (min_stars, max_stars) {
+        (Some(min), Some(max)) => parts.push(format!("stars:{}..{}", min, max)),
+        (Some(min), None) => parts.push(format!("stars:>={}", min)),
+        (None, Some(max)) => parts.push(format!("stars:<={}", max)),
+        (None, None) => {}
+    }
+
+    if let Some(pushed_date) = pushed {
+        parts.push(format!("pushed:{}", pushed_date));
+    }
+
+    parts.join(" ")
+}
+
+/// Sort repository results based on user preference
+fn sort_results(results: &mut [reposcout_core::models::Repository], sort_by: &str) {
+    match sort_by {
+        "stars" => results.sort_by(|a, b| b.stars.cmp(&a.stars)),
+        "forks" => results.sort_by(|a, b| b.forks.cmp(&a.forks)),
+        "updated" => results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
+        _ => {} // Already sorted by relevance from API
+    }
 }
 
 fn get_cache_path() -> anyhow::Result<PathBuf> {
