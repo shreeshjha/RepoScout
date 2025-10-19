@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::retry::{is_retryable_status, with_retry, RetryConfig};
+
 const GITHUB_API_BASE: &str = "https://api.github.com";
 
 #[derive(Error, Debug)]
@@ -31,6 +33,7 @@ pub struct GitHubClient {
     client: reqwest::Client,
     token: Option<String>,
     base_url: String,
+    retry_config: RetryConfig,
 }
 
 impl GitHubClient {
@@ -59,72 +62,112 @@ impl GitHubClient {
             client,
             token,
             base_url,
+            retry_config: RetryConfig::default(),
         }
+    }
+
+    /// Create client with custom retry configuration
+    pub fn with_retry_config(token: Option<String>, retry_config: RetryConfig) -> Self {
+        let mut client = Self::new(token);
+        client.retry_config = retry_config;
+        client
     }
 
     /// Search repositories on GitHub
     pub async fn search_repositories(&self, query: &str, per_page: u32) -> Result<Vec<GitHubRepo>> {
         let url = format!("{}/search/repositories", self.base_url);
+        let token = self.token.clone();
 
-        let mut request = self.client.get(&url).query(&[
-            ("q", query),
-            ("per_page", &per_page.to_string()),
-            ("sort", "stars"),
-        ]);
+        // Wrap in retry logic
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client.get(&url).query(&[
+                ("q", query),
+                ("per_page", &per_page.to_string()),
+                ("sort", "stars"),
+            ]);
 
-        if let Some(token) = &self.token {
-            request = request.bearer_auth(token);
-        }
+            if let Some(ref token) = token {
+                request = request.bearer_auth(token);
+            }
 
-        let response = request.send().await?;
+            let response = request.send().await?;
 
-        // Check rate limit before processing response
-        self.check_rate_limit(&response)?;
+            // Check rate limit before processing response
+            self.check_rate_limit(&response)?;
 
-        if response.status() == 404 {
-            return Err(GitHubError::NotFound(query.to_string()));
-        }
+            if response.status() == 404 {
+                return Err(GitHubError::NotFound(query.to_string()));
+            }
 
-        if !response.status().is_success() {
             let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(GitHubError::RequestFailed(format!(
-                "Status {}: {}",
-                status, body
-            )));
-        }
 
-        let search_result: SearchResponse = response.json().await?;
-        Ok(search_result.items)
+            // Don't retry client errors (except rate limit which is checked above)
+            if status.is_client_error() && !is_retryable_status(status) {
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitHubError::RequestFailed(format!(
+                    "Status {}: {}",
+                    status, body
+                )));
+            }
+
+            // Retry server errors
+            if !response.status().is_success() {
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitHubError::RequestFailed(format!(
+                    "Status {}: {}",
+                    status, body
+                )));
+            }
+
+            let search_result: SearchResponse = response.json().await?;
+            Ok(search_result.items)
+        })
+        .await
     }
 
     /// Get detailed info about a specific repository
     pub async fn get_repository(&self, owner: &str, repo: &str) -> Result<GitHubRepo> {
         let url = format!("{}/repos/{}/{}", self.base_url, owner, repo);
+        let token = self.token.clone();
+        let full_name = format!("{}/{}", owner, repo);
 
-        let mut request = self.client.get(&url);
+        // Wrap in retry logic
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client.get(&url);
 
-        if let Some(token) = &self.token {
-            request = request.bearer_auth(token);
-        }
+            if let Some(ref token) = token {
+                request = request.bearer_auth(token);
+            }
 
-        let response = request.send().await?;
-        self.check_rate_limit(&response)?;
+            let response = request.send().await?;
+            self.check_rate_limit(&response)?;
 
-        if response.status() == 404 {
-            return Err(GitHubError::NotFound(format!("{}/{}", owner, repo)));
-        }
+            if response.status() == 404 {
+                return Err(GitHubError::NotFound(full_name.clone()));
+            }
 
-        if !response.status().is_success() {
             let status = response.status();
-            return Err(GitHubError::RequestFailed(format!(
-                "Failed to fetch repo: {}",
-                status
-            )));
-        }
 
-        let repo: GitHubRepo = response.json().await?;
-        Ok(repo)
+            // Don't retry client errors
+            if status.is_client_error() && !is_retryable_status(status) {
+                return Err(GitHubError::RequestFailed(format!(
+                    "Failed to fetch repo: {}",
+                    status
+                )));
+            }
+
+            // Retry server errors
+            if !response.status().is_success() {
+                return Err(GitHubError::RequestFailed(format!(
+                    "Failed to fetch repo: {}",
+                    status
+                )));
+            }
+
+            let repo: GitHubRepo = response.json().await?;
+            Ok(repo)
+        })
+        .await
     }
 
     /// Check if we're hitting rate limits and return helpful error
