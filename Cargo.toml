@@ -32,7 +32,7 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # CLI argument parsing - clap is king
-clap = { version = "4.5", features = ["derive", "cargo"] }
+clap = { version = "4.5", features = ["derive", "cargo", "env"] }
 # Terminal UI - ratatui for that slick interface
 ratatui = "0.29"
 crossterm = "0.28"

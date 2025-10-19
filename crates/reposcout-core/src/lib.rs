@@ -2,6 +2,7 @@
 pub mod config;
 pub mod error;
 pub mod models;
+pub mod providers;
 pub mod search;
 
 pub use config::Config;

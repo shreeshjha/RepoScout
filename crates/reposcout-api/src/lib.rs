@@ -2,4 +2,4 @@
 pub mod github;
 
 // Re-export common types
-pub use github::GitHubClient;
+pub use github::{GitHubClient, GitHubRepo};
