@@ -1357,6 +1357,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "dirs",
+ "reposcout-cache",
  "reposcout-core",
  "reposcout-tui",
  "serde",

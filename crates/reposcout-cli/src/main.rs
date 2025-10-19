@@ -1,5 +1,7 @@
 use clap::Parser;
-use reposcout_core::{providers::GitHubProvider, search::{SearchEngine, SearchProvider}};
+use reposcout_cache::CacheManager;
+use reposcout_core::{providers::GitHubProvider, CachedSearchEngine};
+use std::path::PathBuf;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
@@ -30,6 +32,21 @@ enum Commands {
         /// Repository name (owner/repo)
         name: String,
     },
+    /// Cache management
+    Cache {
+        #[command(subcommand)]
+        action: CacheAction,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum CacheAction {
+    /// Show cache statistics
+    Stats,
+    /// Clear all cached data
+    Clear,
+    /// Clean up expired entries
+    Cleanup,
 }
 
 #[tokio::main]
@@ -52,6 +69,9 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Show { name }) => {
             show_repository(&name, cli.github_token).await?;
         }
+        Some(Commands::Cache { action }) => {
+            handle_cache_command(action).await?;
+        }
         None => {
             println!("No command specified. Try --help");
         }
@@ -63,10 +83,14 @@ async fn main() -> anyhow::Result<()> {
 async fn search_repositories(query: &str, limit: usize, token: Option<String>) -> anyhow::Result<()> {
     tracing::info!("Searching for: {}", query);
 
-    let mut engine = SearchEngine::new();
+    // Initialize cache
+    let cache_path = get_cache_path()?;
+    let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+
+    let mut engine = CachedSearchEngine::with_cache(cache);
     engine.add_provider(Box::new(GitHubProvider::new(token)));
 
-    let results = engine.search_all(query).await?;
+    let results = engine.search(query).await?;
 
     if results.is_empty() {
         println!("No repositories found for '{}'", query);
@@ -101,8 +125,14 @@ async fn show_repository(full_name: &str, token: Option<String>) -> anyhow::Resu
     let (owner, repo) = (parts[0], parts[1]);
     tracing::info!("Fetching repository: {}/{}", owner, repo);
 
-    let provider = GitHubProvider::new(token);
-    let repository = provider.get_repository(owner, repo).await?;
+    // Initialize cache
+    let cache_path = get_cache_path()?;
+    let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+
+    let mut engine = CachedSearchEngine::with_cache(cache);
+    engine.add_provider(Box::new(GitHubProvider::new(token)));
+
+    let repository = engine.get_repository(owner, repo).await?;
 
     println!("\n{}\n", "=".repeat(60));
     println!("📦 {}", repository.full_name);
@@ -135,4 +165,46 @@ async fn show_repository(full_name: &str, token: Option<String>) -> anyhow::Resu
     println!("\n{}", repository.url);
 
     Ok(())
+}
+
+async fn handle_cache_command(action: CacheAction) -> anyhow::Result<()> {
+    let cache_path = get_cache_path()?;
+    let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+
+    match action {
+        CacheAction::Stats => {
+            let stats = cache.stats()?;
+            println!("\nCache Statistics:\n");
+            println!("Total entries:   {}", stats.total_entries);
+            println!("Valid entries:   {}", stats.valid_entries);
+            println!("Expired entries: {}", stats.expired_entries);
+            println!("Cache size:      {} KB", stats.size_bytes / 1024);
+            println!("\nCache location:  {}", cache_path.display());
+        }
+        CacheAction::Clear => {
+            cache.clear()?;
+            println!("✅ Cache cleared successfully");
+        }
+        CacheAction::Cleanup => {
+            let deleted = cache.cleanup_expired()?;
+            println!("✅ Cleaned up {} expired entries", deleted);
+        }
+    }
+
+    Ok(())
+}
+
+fn get_cache_path() -> anyhow::Result<PathBuf> {
+    let cache_dir = if cfg!(target_os = "windows") {
+        dirs::cache_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not find cache directory"))?
+            .join("reposcout")
+    } else {
+        dirs::cache_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not find cache directory"))?
+            .join("reposcout")
+    };
+
+    std::fs::create_dir_all(&cache_dir)?;
+    Ok(cache_dir.join("reposcout.db"))
 }

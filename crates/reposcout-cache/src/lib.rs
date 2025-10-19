@@ -3,4 +3,4 @@
 
 pub mod cache;
 
-pub use cache::CacheManager;
+pub use cache::{CacheError, CacheManager, CacheStats};

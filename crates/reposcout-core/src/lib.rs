@@ -4,9 +4,11 @@ pub mod error;
 pub mod models;
 pub mod providers;
 pub mod search;
+pub mod search_with_cache;
 
 pub use config::Config;
 pub use error::Error;
+pub use search_with_cache::CachedSearchEngine;
 
 /// Result type alias because typing Result<T, Error> everywhere is tedious
 pub type Result<T> = std::result::Result<T, Error>;

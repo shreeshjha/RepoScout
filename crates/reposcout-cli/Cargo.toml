@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 reposcout-core = { path = "../reposcout-core" }
+reposcout-cache = { path = "../reposcout-cache" }
 reposcout-tui = { path = "../reposcout-tui" }
 
 clap = { workspace = true }
@@ -22,3 +23,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true }
+dirs = "5.0"
