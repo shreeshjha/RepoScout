@@ -57,6 +57,8 @@ enum Commands {
         #[command(subcommand)]
         action: CacheAction,
     },
+    /// Launch interactive TUI
+    Tui,
 }
 
 #[derive(clap::Subcommand)]
@@ -109,6 +111,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Cache { action }) => {
             handle_cache_command(action).await?;
+        }
+        Some(Commands::Tui) => {
+            run_tui_mode(cli.github_token).await?;
         }
         None => {
             println!("No command specified. Try --help");
@@ -286,6 +291,27 @@ fn sort_results(results: &mut [reposcout_core::models::Repository], sort_by: &st
         "updated" => results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
         _ => {} // Already sorted by relevance from API
     }
+}
+
+async fn run_tui_mode(token: Option<String>) -> anyhow::Result<()> {
+    use reposcout_tui::{App, run_tui};
+
+    let app = App::new();
+    let cache_path = get_cache_path()?;
+    let cache_path_str = cache_path.to_str().unwrap().to_string();
+
+    run_tui(app, move |query| {
+        let token_clone = token.clone();
+        let cache_path_clone = cache_path_str.clone();
+
+        Box::pin(async move {
+            let cache = CacheManager::new(&cache_path_clone, 24)?;
+            let mut engine = CachedSearchEngine::with_cache(cache);
+            engine.add_provider(Box::new(GitHubProvider::new(token_clone)));
+            engine.search(query).await.map_err(|e| e.into())
+        })
+    })
+    .await
 }
 
 fn get_cache_path() -> anyhow::Result<PathBuf> {
