@@ -60,7 +60,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     let input_style = match app.input_mode {
         InputMode::Searching => Style::default().fg(Color::Yellow),
-        InputMode::Normal | InputMode::Filtering => Style::default(),
+        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter => Style::default(),
     };
 
     let input = Paragraph::new(app.search_input.as_str())
@@ -195,7 +195,9 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
-    let is_active = app.input_mode == InputMode::Filtering;
+    let is_active = app.input_mode == InputMode::Filtering || app.input_mode == InputMode::EditingFilter;
+    let is_editing = app.input_mode == InputMode::EditingFilter;
+
     let border_style = if is_active {
         Style::default().fg(Color::Yellow)
     } else {
@@ -204,6 +206,15 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
 
     let filters = &app.filters;
     let cursor = app.filter_cursor;
+
+    // Helper to get display value (either from edit buffer or actual filter)
+    let get_display_value = |field_idx: usize, default_val: &str| -> String {
+        if is_editing && cursor == field_idx {
+            format!("{}█", app.filter_edit_buffer) // Show cursor
+        } else {
+            default_val.to_string()
+        }
+    };
 
     // Create filter display lines
     let lines = vec![
@@ -217,7 +228,7 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
                 },
             ),
             Span::styled(
-                filters.language.as_deref().unwrap_or("<none>"),
+                get_display_value(0, filters.language.as_deref().unwrap_or("<none>")),
                 if cursor == 0 && is_active {
                     Style::default().fg(Color::Cyan)
                 } else {
@@ -235,7 +246,7 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
                 },
             ),
             Span::styled(
-                filters.min_stars.map(|s| s.to_string()).unwrap_or_else(|| "<none>".to_string()),
+                get_display_value(1, &filters.min_stars.map(|s| s.to_string()).unwrap_or_else(|| "<none>".to_string())),
                 if cursor == 1 && is_active {
                     Style::default().fg(Color::Cyan)
                 } else {
@@ -253,7 +264,7 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
                 },
             ),
             Span::styled(
-                filters.max_stars.map(|s| s.to_string()).unwrap_or_else(|| "<none>".to_string()),
+                get_display_value(2, &filters.max_stars.map(|s| s.to_string()).unwrap_or_else(|| "<none>".to_string())),
                 if cursor == 2 && is_active {
                     Style::default().fg(Color::Cyan)
                 } else {
@@ -271,7 +282,7 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
                 },
             ),
             Span::styled(
-                filters.pushed.as_deref().unwrap_or("<none>"),
+                get_display_value(3, filters.pushed.as_deref().unwrap_or("<none>")),
                 if cursor == 3 && is_active {
                     Style::default().fg(Color::Cyan)
                 } else {
@@ -289,7 +300,7 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
                 },
             ),
             Span::styled(
-                &filters.sort_by,
+                get_display_value(4, &filters.sort_by),
                 if cursor == 4 && is_active {
                     Style::default().fg(Color::Cyan)
                 } else {
@@ -326,6 +337,9 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             }
             InputMode::Filtering => {
                 Span::styled("FILTER MODE | TAB/j/k: navigate | ENTER: edit | DEL: clear | ESC: close", Style::default().fg(Color::Yellow))
+            }
+            InputMode::EditingFilter => {
+                Span::styled("EDITING | Type value | ENTER: save | ESC: cancel", Style::default().fg(Color::Green))
             }
             InputMode::Normal => {
                 Span::raw("j/k: navigate | /: search | F: filters | q: quit | ENTER: open in browser")

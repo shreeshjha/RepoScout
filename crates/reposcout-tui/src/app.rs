@@ -5,7 +5,8 @@ use reposcout_core::models::Repository;
 pub enum InputMode {
     Normal,      // Navigating results
     Searching,   // Typing in search box
-    Filtering,   // Editing filters
+    Filtering,   // Navigating filters
+    EditingFilter, // Actively typing in a filter field
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +78,7 @@ pub struct App {
     pub filters: SearchFilters,
     pub show_filters: bool,
     pub filter_cursor: usize,
+    pub filter_edit_buffer: String,
 }
 
 impl App {
@@ -93,6 +95,7 @@ impl App {
             filters: SearchFilters::default(),
             show_filters: false,
             filter_cursor: 0,
+            filter_edit_buffer: String::new(),
         }
     }
 
@@ -109,6 +112,58 @@ impl App {
     }
 
     pub fn enter_filter_mode(&mut self) {
+        self.input_mode = InputMode::Filtering;
+    }
+
+    pub fn enter_editing_filter_mode(&mut self) {
+        self.input_mode = InputMode::EditingFilter;
+        // Load current filter value into edit buffer
+        self.filter_edit_buffer = match self.filter_cursor {
+            0 => self.filters.language.clone().unwrap_or_default(),
+            1 => self.filters.min_stars.map(|s| s.to_string()).unwrap_or_default(),
+            2 => self.filters.max_stars.map(|s| s.to_string()).unwrap_or_default(),
+            3 => self.filters.pushed.clone().unwrap_or_default(),
+            4 => self.filters.sort_by.clone(),
+            _ => String::new(),
+        };
+    }
+
+    pub fn save_filter_edit(&mut self) {
+        // Save the edit buffer to the actual filter
+        match self.filter_cursor {
+            0 => {
+                self.filters.language = if self.filter_edit_buffer.is_empty() {
+                    None
+                } else {
+                    Some(self.filter_edit_buffer.clone())
+                };
+            }
+            1 => {
+                self.filters.min_stars = self.filter_edit_buffer.parse().ok();
+            }
+            2 => {
+                self.filters.max_stars = self.filter_edit_buffer.parse().ok();
+            }
+            3 => {
+                self.filters.pushed = if self.filter_edit_buffer.is_empty() {
+                    None
+                } else {
+                    Some(self.filter_edit_buffer.clone())
+                };
+            }
+            4 => {
+                if !self.filter_edit_buffer.is_empty() {
+                    self.filters.sort_by = self.filter_edit_buffer.clone();
+                }
+            }
+            _ => {}
+        }
+        self.filter_edit_buffer.clear();
+        self.input_mode = InputMode::Filtering;
+    }
+
+    pub fn cancel_filter_edit(&mut self) {
+        self.filter_edit_buffer.clear();
         self.input_mode = InputMode::Filtering;
     }
 
