@@ -90,6 +90,8 @@ pub struct App {
     pub preview_mode: PreviewMode,
     pub readme_content: Option<String>,
     pub readme_loading: bool,
+    // Cache README content per repository to avoid re-fetching
+    pub readme_cache: std::collections::HashMap<String, String>,
 }
 
 impl App {
@@ -114,6 +116,7 @@ impl App {
             preview_mode: PreviewMode::Stats,
             readme_content: None,
             readme_loading: false,
+            readme_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -132,6 +135,39 @@ impl App {
     pub fn clear_readme(&mut self) {
         self.readme_content = None;
         self.readme_loading = false;
+    }
+
+    /// Check if README is cached for the currently selected repository
+    pub fn get_cached_readme(&self) -> Option<&String> {
+        if let Some(repo) = self.selected_repository() {
+            self.readme_cache.get(&repo.full_name)
+        } else {
+            None
+        }
+    }
+
+    /// Cache README content for a repository
+    pub fn cache_readme(&mut self, repo_name: String, content: String) {
+        self.readme_cache.insert(repo_name, content);
+    }
+
+    /// Start README loading for current repository
+    pub fn start_readme_loading(&mut self) {
+        self.readme_loading = true;
+        self.readme_content = None;
+    }
+
+    /// Set README from cache or fetched content
+    pub fn load_readme_for_current(&mut self) {
+        if let Some(repo) = self.selected_repository() {
+            if let Some(cached) = self.readme_cache.get(&repo.full_name) {
+                self.readme_content = Some(cached.clone());
+                self.readme_loading = false;
+            } else {
+                // Mark as loading - will be fetched async
+                self.start_readme_loading();
+            }
+        }
     }
 
     pub fn quit(&mut self) {

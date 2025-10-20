@@ -15,6 +15,7 @@ path = "src/main.rs"
 reposcout-core = { path = "../reposcout-core" }
 reposcout-cache = { path = "../reposcout-cache" }
 reposcout-tui = { path = "../reposcout-tui" }
+reposcout-api = { path = "../reposcout-api" }
 
 clap = { workspace = true }
 tokio = { workspace = true }

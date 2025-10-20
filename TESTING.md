@@ -141,7 +141,7 @@ The TUI searches both GitHub and GitLab simultaneously:
 - `j` / `k` or arrow keys to navigate results
 - `/` to enter search mode
 - `F` to toggle filters panel
-- `R` to toggle between stats and README preview
+- `R` to fetch and display README (fetches automatically on first press, cached afterward)
 - `Enter` to open repository in browser
 - `q` to quit
 
@@ -188,6 +188,15 @@ The TUI searches both GitHub and GitLab simultaneously:
    - Open filters with `F`
    - Navigate to any filter
    - Press `d` to clear it
+
+4. **README preview**:
+   - Launch TUI and search for a repository (e.g., "ratatui")
+   - Navigate to a repository with `j`/`k`
+   - Press `R` to fetch and view the README
+   - README is fetched from the API and cached automatically
+   - Press `R` again to toggle back to stats view
+   - Supports both GitHub and GitLab repositories
+   - Basic markdown rendering: headers, code blocks, lists
 
 ## GitHub Token (Optional)
 

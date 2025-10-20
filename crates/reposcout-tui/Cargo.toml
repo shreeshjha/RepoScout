@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 reposcout-core = { path = "../reposcout-core" }
+reposcout-api = { path = "../reposcout-api" }
 
 ratatui = { workspace = true }
 crossterm = { workspace = true }

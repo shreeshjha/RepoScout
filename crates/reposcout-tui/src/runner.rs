@@ -7,8 +7,14 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
+use reposcout_api::{GitHubClient, GitLabClient};
 
-pub async fn run_tui<F>(mut app: App, mut on_search: F) -> anyhow::Result<()>
+pub async fn run_tui<F>(
+    mut app: App,
+    mut on_search: F,
+    github_client: GitHubClient,
+    gitlab_client: GitLabClient,
+) -> anyhow::Result<()>
 where
     F: FnMut(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<Vec<reposcout_core::models::Repository>>> + '_>>,
 {
@@ -111,25 +117,57 @@ where
                         KeyCode::Char('r') | KeyCode::Char('R') => {
                             use crate::PreviewMode;
 
-                            // If toggling to README mode and we don't have content, show mock
-                            if app.preview_mode == PreviewMode::Stats && app.readme_content.is_none() {
-                                // Mock README for demo - in real impl, we'd fetch from API
-                                let mock_readme = "# Repository README\n\n\
-                                    ## Overview\n\
-                                    This is a sample README preview.\n\n\
-                                    ### Features\n\
-                                    - Feature 1\n\
-                                    - Feature 2\n\
-                                    - Feature 3\n\n\
-                                    ### Installation\n\
-                                    ```bash\n\
-                                    cargo install repo\n\
-                                    ```\n\n\
-                                    Press 'r' to toggle back to stats view.\n\n\
-                                    **Note**: Real README fetching coming soon!";
-                                app.set_readme(mock_readme.to_string());
+                            // If toggling to README mode, fetch if needed
+                            if app.preview_mode == PreviewMode::Stats {
+                                if let Some(repo) = app.selected_repository() {
+                                    let repo_name = repo.full_name.clone();
+                                    let platform = repo.platform;
+
+                                    // Check if already cached
+                                    if !app.readme_cache.contains_key(&repo_name) {
+                                        // Mark as loading
+                                        app.start_readme_loading();
+                                        app.toggle_preview_mode();
+
+                                        // Fetch README based on platform
+                                        let readme_result: anyhow::Result<String> = match platform {
+                                            reposcout_core::models::Platform::GitHub => {
+                                                let parts: Vec<&str> = repo_name.split('/').collect();
+                                                if parts.len() == 2 {
+                                                    github_client.get_readme(parts[0], parts[1]).await.map_err(|e| anyhow::anyhow!("{}", e))
+                                                } else {
+                                                    Err(anyhow::anyhow!("Invalid repository name format"))
+                                                }
+                                            }
+                                            reposcout_core::models::Platform::GitLab => {
+                                                gitlab_client.get_readme(&repo_name).await.map_err(|e| anyhow::anyhow!("{}", e))
+                                            }
+                                            _ => Err(anyhow::anyhow!("Platform not supported")),
+                                        };
+
+                                        match readme_result {
+                                            Ok(readme) => {
+                                                app.cache_readme(repo_name, readme.clone());
+                                                app.set_readme(readme);
+                                            }
+                                            Err(e) => {
+                                                let error_msg = format!("# README Not Available\n\nFailed to fetch README: {}", e);
+                                                app.cache_readme(repo_name, error_msg.clone());
+                                                app.set_readme(error_msg);
+                                            }
+                                        }
+                                    } else {
+                                        // Load from cache
+                                        app.load_readme_for_current();
+                                        app.toggle_preview_mode();
+                                    }
+                                } else {
+                                    app.toggle_preview_mode();
+                                }
+                            } else {
+                                // Just toggle back to stats
+                                app.toggle_preview_mode();
                             }
-                            app.toggle_preview_mode();
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
                             app.next_result();

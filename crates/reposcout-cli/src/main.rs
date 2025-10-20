@@ -305,10 +305,15 @@ fn sort_results(results: &mut [reposcout_core::models::Repository], sort_by: &st
 
 async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>) -> anyhow::Result<()> {
     use reposcout_tui::{App, run_tui};
+    use reposcout_api::{GitHubClient, GitLabClient};
 
     let app = App::new();
     let cache_path = get_cache_path()?;
     let cache_path_str = cache_path.to_str().unwrap().to_string();
+
+    // Create API clients for README fetching
+    let github_client = GitHubClient::new(github_token.clone());
+    let gitlab_client = GitLabClient::new(gitlab_token.clone());
 
     run_tui(app, move |query| {
         let github_token_clone = github_token.clone();
@@ -323,7 +328,7 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
             engine.add_provider(Box::new(GitLabProvider::new(gitlab_token_clone)));
             engine.search(query).await.map_err(|e| e.into())
         })
-    })
+    }, github_client, gitlab_client)
     .await
 }
 
