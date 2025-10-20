@@ -11,15 +11,32 @@ use ratatui::{
 pub fn render(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),  // Search input
-            Constraint::Min(10),     // Main content
-            Constraint::Length(1),   // Status bar
-        ])
+        .constraints(if app.show_filters {
+            vec![
+                Constraint::Length(3),  // Search input
+                Constraint::Length(9),  // Filters panel
+                Constraint::Min(10),    // Main content
+                Constraint::Length(1),  // Status bar
+            ]
+        } else {
+            vec![
+                Constraint::Length(3),  // Search input
+                Constraint::Min(10),    // Main content
+                Constraint::Length(1),  // Status bar
+            ]
+        })
         .split(frame.area());
 
     // Render search input
     render_search_input(frame, app, chunks[0]);
+
+    let (content_area, status_area) = if app.show_filters {
+        // Render filters panel
+        render_filters_panel(frame, app, chunks[1]);
+        (chunks[2], chunks[3])
+    } else {
+        (chunks[1], chunks[2])
+    };
 
     // Split main content into results and preview
     let content_chunks = Layout::default()
@@ -28,7 +45,7 @@ pub fn render(frame: &mut Frame, app: &App) {
             Constraint::Percentage(40),  // Results list
             Constraint::Percentage(60),  // Preview pane
         ])
-        .split(chunks[1]);
+        .split(content_area);
 
     // Render results list
     render_results_list(frame, app, content_chunks[0]);
@@ -37,13 +54,13 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_preview(frame, app, content_chunks[1]);
 
     // Render status bar
-    render_status_bar(frame, app, chunks[2]);
+    render_status_bar(frame, app, status_area);
 }
 
 fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     let input_style = match app.input_mode {
         InputMode::Searching => Style::default().fg(Color::Yellow),
-        InputMode::Normal => Style::default(),
+        InputMode::Normal | InputMode::Filtering => Style::default(),
     };
 
     let input = Paragraph::new(app.search_input.as_str())
@@ -177,6 +194,128 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
+fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
+    let is_active = app.input_mode == InputMode::Filtering;
+    let border_style = if is_active {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+
+    let filters = &app.filters;
+    let cursor = app.filter_cursor;
+
+    // Create filter display lines
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(
+                "Language:   ",
+                if cursor == 0 && is_active {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ),
+            Span::styled(
+                filters.language.as_deref().unwrap_or("<none>"),
+                if cursor == 0 && is_active {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "Min Stars:  ",
+                if cursor == 1 && is_active {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ),
+            Span::styled(
+                filters.min_stars.map(|s| s.to_string()).unwrap_or_else(|| "<none>".to_string()),
+                if cursor == 1 && is_active {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "Max Stars:  ",
+                if cursor == 2 && is_active {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ),
+            Span::styled(
+                filters.max_stars.map(|s| s.to_string()).unwrap_or_else(|| "<none>".to_string()),
+                if cursor == 2 && is_active {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "Pushed:     ",
+                if cursor == 3 && is_active {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ),
+            Span::styled(
+                filters.pushed.as_deref().unwrap_or("<none>"),
+                if cursor == 3 && is_active {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "Sort By:    ",
+                if cursor == 4 && is_active {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ),
+            Span::styled(
+                &filters.sort_by,
+                if cursor == 4 && is_active {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                },
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "TAB/arrows: navigate | ENTER: edit | DEL: clear | ESC: close",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Filters (F to toggle)")
+                .border_style(border_style),
+        )
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(paragraph, area);
+}
+
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let status = if let Some(error) = &app.error_message {
         Span::styled(error, Style::default().fg(Color::Red))
@@ -185,8 +324,11 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             InputMode::Searching => {
                 Span::styled("SEARCH MODE | ESC: normal mode | ENTER: search", Style::default().fg(Color::Yellow))
             }
+            InputMode::Filtering => {
+                Span::styled("FILTER MODE | TAB/j/k: navigate | ENTER: edit | DEL: clear | ESC: close", Style::default().fg(Color::Yellow))
+            }
             InputMode::Normal => {
-                Span::raw("j/k: navigate | /: search | q: quit | ENTER: open in browser")
+                Span::raw("j/k: navigate | /: search | F: filters | q: quit | ENTER: open in browser")
             }
         }
     };
