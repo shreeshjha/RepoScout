@@ -194,7 +194,9 @@ The TUI searches both GitHub and GitLab simultaneously:
    - Navigate to a repository with `j`/`k`
    - Press `R` to fetch and view the README
    - README is fetched from the API and cached automatically
+   - Use `j`/`k` to scroll through the README content
    - Press `R` again to toggle back to stats view
+   - Scroll position resets when switching between repositories
    - Supports both GitHub and GitLab repositories
    - Basic markdown rendering: headers, code blocks, lists
 

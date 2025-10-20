@@ -119,6 +119,9 @@ where
 
                             // If toggling to README mode, fetch if needed
                             if app.preview_mode == PreviewMode::Stats {
+                                // Reset scroll position when entering README view
+                                app.reset_readme_scroll();
+
                                 if let Some(repo) = app.selected_repository() {
                                     let repo_name = repo.full_name.clone();
                                     let platform = repo.platform;
@@ -170,10 +173,22 @@ where
                             }
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
-                            app.next_result();
+                            use crate::PreviewMode;
+                            // If in README preview mode, scroll instead of navigating
+                            if app.preview_mode == PreviewMode::Readme {
+                                app.scroll_readme_down();
+                            } else {
+                                app.next_result();
+                            }
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
-                            app.previous_result();
+                            use crate::PreviewMode;
+                            // If in README preview mode, scroll instead of navigating
+                            if app.preview_mode == PreviewMode::Readme {
+                                app.scroll_readme_up();
+                            } else {
+                                app.previous_result();
+                            }
                         }
                         KeyCode::Enter => {
                             if let Some(repo) = app.selected_repository() {

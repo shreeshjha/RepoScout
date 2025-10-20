@@ -92,6 +92,8 @@ pub struct App {
     pub readme_loading: bool,
     // Cache README content per repository to avoid re-fetching
     pub readme_cache: std::collections::HashMap<String, String>,
+    // Scroll position for README view
+    pub readme_scroll: u16,
 }
 
 impl App {
@@ -117,6 +119,7 @@ impl App {
             readme_content: None,
             readme_loading: false,
             readme_cache: std::collections::HashMap::new(),
+            readme_scroll: 0,
         }
     }
 
@@ -168,6 +171,21 @@ impl App {
                 self.start_readme_loading();
             }
         }
+    }
+
+    /// Scroll README down
+    pub fn scroll_readme_down(&mut self) {
+        self.readme_scroll = self.readme_scroll.saturating_add(1);
+    }
+
+    /// Scroll README up
+    pub fn scroll_readme_up(&mut self) {
+        self.readme_scroll = self.readme_scroll.saturating_sub(1);
+    }
+
+    /// Reset README scroll position
+    pub fn reset_readme_scroll(&mut self) {
+        self.readme_scroll = 0;
     }
 
     pub fn quit(&mut self) {

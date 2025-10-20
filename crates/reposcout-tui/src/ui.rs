@@ -134,10 +134,16 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
         PreviewMode::Readme => render_readme_preview(app),
     };
 
+    // Use scroll position from app state when in README mode
+    let scroll_offset = match app.preview_mode {
+        PreviewMode::Readme => app.readme_scroll,
+        PreviewMode::Stats => 0,
+    };
+
     let paragraph = Paragraph::new(content)
         .block(Block::default().borders(Borders::ALL).title(title))
         .wrap(Wrap { trim: true })
-        .scroll((0, 0));
+        .scroll((scroll_offset, 0));
 
     frame.render_widget(paragraph, area);
 }
@@ -404,7 +410,12 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled("EDITING | Type value | ENTER: save | ESC: cancel", Style::default().fg(Color::Green))
             }
             InputMode::Normal => {
-                Span::raw("j/k: navigate | /: search | F: filters | R: readme | q: quit | ENTER: open")
+                use crate::PreviewMode;
+                if app.preview_mode == PreviewMode::Readme {
+                    Span::styled("README MODE | j/k: scroll | R: back to stats | q: quit", Style::default().fg(Color::Cyan))
+                } else {
+                    Span::raw("j/k: navigate | /: search | F: filters | R: readme | q: quit | ENTER: open")
+                }
             }
         }
     };
