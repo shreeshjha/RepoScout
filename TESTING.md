@@ -106,10 +106,16 @@ time ./target/release/reposcout search "rust tui" -n 5
 **Filter Mode (press `F` to toggle):**
 - `j` / `k` or arrow keys to navigate between filters
 - `Tab` to move to next filter
-- `Enter` to edit selected filter
+- `Enter` to edit selected filter (see live typing with cursor █)
 - `d` or `Delete` to clear selected filter
 - `s` to cycle sort options (when on Sort By field)
 - `Esc` to close filters and return to navigation
+
+**Editing Filter (when typing):**
+- Type your value - see it appear in real-time
+- `Backspace` to delete characters
+- `Enter` to save the value
+- `Esc` to cancel without saving
 
 **Available Filters:**
 - **Language**: Filter by programming language (e.g., rust, python, go)
