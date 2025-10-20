@@ -125,6 +125,45 @@ impl GitHubClient {
         .await
     }
 
+    /// Get repository README content
+    pub async fn get_readme(&self, owner: &str, repo: &str) -> Result<String> {
+        let url = format!("{}/repos/{}/{}/readme", self.base_url, owner, repo);
+        let token = self.token.clone();
+
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client.get(&url).header(
+                reqwest::header::ACCEPT,
+                // Request raw markdown content
+                reqwest::header::HeaderValue::from_static("application/vnd.github.raw+json"),
+            );
+
+            if let Some(ref token) = token {
+                request = request.bearer_auth(token);
+            }
+
+            let response = request.send().await?;
+
+            self.check_rate_limit(&response)?;
+
+            if response.status() == 404 {
+                return Err(GitHubError::NotFound(format!("{}/{}", owner, repo)));
+            }
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitHubError::RequestFailed(format!(
+                    "Status {}: {}",
+                    status, body
+                )));
+            }
+
+            let readme_content = response.text().await?;
+            Ok(readme_content)
+        })
+        .await
+    }
+
     /// Get detailed info about a specific repository
     pub async fn get_repository(&self, owner: &str, repo: &str) -> Result<GitHubRepo> {
         let url = format!("{}/repos/{}/{}", self.base_url, owner, repo);

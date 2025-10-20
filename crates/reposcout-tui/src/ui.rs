@@ -127,17 +127,33 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::PreviewMode;
+
+    let (title, content) = match app.preview_mode {
+        PreviewMode::Stats => render_stats_preview(app),
+        PreviewMode::Readme => render_readme_preview(app),
+    };
+
+    let paragraph = Paragraph::new(content)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .wrap(Wrap { trim: true })
+        .scroll((0, 0));
+
+    frame.render_widget(paragraph, area);
+}
+
+fn render_stats_preview(app: &App) -> (String, Vec<Line>) {
     let content = if let Some(repo) = app.selected_repository() {
         let mut lines = vec![
             Line::from(vec![Span::styled(
-                &repo.full_name,
+                repo.full_name.clone(),
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )]),
             Line::from(""),
         ];
 
         if let Some(desc) = &repo.description {
-            lines.push(Line::from(desc.as_str()));
+            lines.push(Line::from(desc.clone()));
             lines.push(Line::from(""));
         }
 
@@ -161,7 +177,7 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
         if let Some(lang) = &repo.language {
             lines.push(Line::from(vec![
                 Span::raw("Language: "),
-                Span::styled(lang, Style::default().fg(Color::Magenta)),
+                Span::styled(lang.clone(), Style::default().fg(Color::Magenta)),
             ]));
         }
 
@@ -189,11 +205,55 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
         vec![Line::from("No repository selected")]
     };
 
-    let paragraph = Paragraph::new(content)
-        .block(Block::default().borders(Borders::ALL).title("Preview"))
-        .wrap(Wrap { trim: true });
+    ("Preview (Press 'r' for README)".to_string(), content)
+}
 
-    frame.render_widget(paragraph, area);
+fn render_readme_preview(app: &App) -> (String, Vec<Line>) {
+    if app.readme_loading {
+        return ("README (Loading...)".to_string(), vec![Line::from("Loading README...")]);
+    }
+
+    if let Some(readme) = &app.readme_content {
+        // Simple markdown-to-text conversion
+        let lines: Vec<Line> = readme
+            .lines()
+            .map(|line| {
+                // Basic markdown styling
+                if line.starts_with("# ") {
+                    Line::from(Span::styled(
+                        line.trim_start_matches("# "),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                } else if line.starts_with("## ") {
+                    Line::from(Span::styled(
+                        line.trim_start_matches("## "),
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ))
+                } else if line.starts_with("### ") {
+                    Line::from(Span::styled(
+                        line.trim_start_matches("### "),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    ))
+                } else if line.starts_with("```") {
+                    Line::from(Span::styled(
+                        line,
+                        Style::default().fg(Color::DarkGray),
+                    ))
+                } else if line.starts_with("- ") || line.starts_with("* ") {
+                    Line::from(Span::styled(
+                        line,
+                        Style::default().fg(Color::Blue),
+                    ))
+                } else {
+                    Line::from(line)
+                }
+            })
+            .collect();
+
+        ("README (Press 'r' to go back)".to_string(), lines)
+    } else {
+        ("README (Press 'r' to fetch)".to_string(), vec![Line::from("Press 'r' to fetch README")])
+    }
 }
 
 fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
@@ -344,7 +404,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled("EDITING | Type value | ENTER: save | ESC: cancel", Style::default().fg(Color::Green))
             }
             InputMode::Normal => {
-                Span::raw("j/k: navigate | /: search | F: filters | q: quit | ENTER: open in browser")
+                Span::raw("j/k: navigate | /: search | F: filters | R: readme | q: quit | ENTER: open")
             }
         }
     };

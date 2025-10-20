@@ -36,6 +36,8 @@ clap = { version = "4.5", features = ["derive", "cargo", "env"] }
 # Terminal UI - ratatui for that slick interface
 ratatui = "0.29"
 crossterm = "0.28"
+# Markdown rendering in terminal
+termimad = "0.30"
 # Database - SQLite because it just works
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Config management

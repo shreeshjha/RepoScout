@@ -10,6 +10,12 @@ pub enum InputMode {
     EditingFilter, // Actively typing in a filter field
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewMode {
+    Stats,   // Show repository statistics
+    Readme,  // Show README content
+}
+
 #[derive(Debug, Clone)]
 pub struct SearchFilters {
     pub language: Option<String>,
@@ -81,6 +87,9 @@ pub struct App {
     pub filter_cursor: usize,
     pub filter_edit_buffer: String,
     pub list_state: ListState,
+    pub preview_mode: PreviewMode,
+    pub readme_content: Option<String>,
+    pub readme_loading: bool,
 }
 
 impl App {
@@ -102,7 +111,27 @@ impl App {
             filter_cursor: 0,
             filter_edit_buffer: String::new(),
             list_state,
+            preview_mode: PreviewMode::Stats,
+            readme_content: None,
+            readme_loading: false,
         }
+    }
+
+    pub fn toggle_preview_mode(&mut self) {
+        self.preview_mode = match self.preview_mode {
+            PreviewMode::Stats => PreviewMode::Readme,
+            PreviewMode::Readme => PreviewMode::Stats,
+        };
+    }
+
+    pub fn set_readme(&mut self, content: String) {
+        self.readme_content = Some(content);
+        self.readme_loading = false;
+    }
+
+    pub fn clear_readme(&mut self) {
+        self.readme_content = None;
+        self.readme_loading = false;
     }
 
     pub fn quit(&mut self) {

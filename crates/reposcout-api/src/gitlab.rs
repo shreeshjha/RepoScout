@@ -124,6 +124,46 @@ impl GitLabClient {
         .await
     }
 
+    /// Get project README content
+    pub async fn get_readme(&self, path: &str) -> Result<String> {
+        // GitLab uses URL-encoded paths
+        let encoded_path = urlencoding::encode(path);
+        let url = format!("{}/projects/{}/repository/files/README.md/raw", self.base_url, encoded_path);
+        let token = self.token.clone();
+
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client.get(&url).query(&[("ref", "HEAD")]);
+
+            if let Some(ref token) = token {
+                request = request.header("PRIVATE-TOKEN", token);
+            }
+
+            let response = request.send().await?;
+
+            if response.status() == 404 {
+                // Try other common README names
+                return Err(GitLabError::NotFound(format!("README not found for {}", path)));
+            }
+
+            if response.status() == 401 {
+                return Err(GitLabError::AuthRequired);
+            }
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitLabError::RequestFailed(format!(
+                    "Status {}: {}",
+                    status, body
+                )));
+            }
+
+            let readme_content = response.text().await?;
+            Ok(readme_content)
+        })
+        .await
+    }
+
     /// Get a specific project by path (e.g., "gitlab-org/gitlab")
     pub async fn get_project(&self, path: &str) -> Result<GitLabProject> {
         // GitLab uses URL-encoded paths

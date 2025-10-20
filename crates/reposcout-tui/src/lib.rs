@@ -5,5 +5,5 @@ pub mod app;
 pub mod runner;
 pub mod ui;
 
-pub use app::{App, InputMode};
+pub use app::{App, InputMode, PreviewMode};
 pub use runner::run_tui;

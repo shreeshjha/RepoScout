@@ -141,6 +141,7 @@ The TUI searches both GitHub and GitLab simultaneously:
 - `j` / `k` or arrow keys to navigate results
 - `/` to enter search mode
 - `F` to toggle filters panel
+- `R` to toggle between stats and README preview
 - `Enter` to open repository in browser
 - `q` to quit
 

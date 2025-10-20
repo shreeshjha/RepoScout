@@ -15,4 +15,5 @@ crossterm = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+termimad = { workspace = true }
 open = "5.3"

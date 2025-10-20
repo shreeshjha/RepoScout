@@ -108,6 +108,29 @@ where
                                 app.enter_filter_mode();
                             }
                         }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            use crate::PreviewMode;
+
+                            // If toggling to README mode and we don't have content, show mock
+                            if app.preview_mode == PreviewMode::Stats && app.readme_content.is_none() {
+                                // Mock README for demo - in real impl, we'd fetch from API
+                                let mock_readme = "# Repository README\n\n\
+                                    ## Overview\n\
+                                    This is a sample README preview.\n\n\
+                                    ### Features\n\
+                                    - Feature 1\n\
+                                    - Feature 2\n\
+                                    - Feature 3\n\n\
+                                    ### Installation\n\
+                                    ```bash\n\
+                                    cargo install repo\n\
+                                    ```\n\n\
+                                    Press 'r' to toggle back to stats view.\n\n\
+                                    **Note**: Real README fetching coming soon!";
+                                app.set_readme(mock_readme.to_string());
+                            }
+                            app.toggle_preview_mode();
+                        }
                         KeyCode::Char('j') | KeyCode::Down => {
                             app.next_result();
                         }
