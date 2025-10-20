@@ -21,7 +21,7 @@ where
 
     // Main loop
     loop {
-        terminal.draw(|f| crate::ui::render(f, &app))?;
+        terminal.draw(|f| crate::ui::render(f, &mut app))?;
 
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {

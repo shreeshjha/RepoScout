@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(if app.show_filters {
@@ -47,7 +47,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         ])
         .split(content_area);
 
-    // Render results list
+    // Render results list (needs mutable app for stateful widget)
     render_results_list(frame, app, content_chunks[0]);
 
     // Render preview pane
@@ -83,7 +83,7 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_results_list(frame: &mut Frame, app: &App, area: Rect) {
+fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = app
         .results
         .iter()
@@ -119,9 +119,11 @@ fn render_results_list(frame: &mut Frame, app: &App, area: Rect) {
             Style::default()
                 .bg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD),
-        );
+        )
+        .highlight_symbol(">> ");
 
-    frame.render_widget(list, area);
+    // Use stateful rendering for proper scrolling
+    frame.render_stateful_widget(list, area, &mut app.list_state);
 }
 
 fn render_preview(frame: &mut Frame, app: &App, area: Rect) {

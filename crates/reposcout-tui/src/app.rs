@@ -1,5 +1,6 @@
 // TUI application state and event handling
 use reposcout_core::models::Repository;
+use ratatui::widgets::ListState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMode {
@@ -79,10 +80,14 @@ pub struct App {
     pub show_filters: bool,
     pub filter_cursor: usize,
     pub filter_edit_buffer: String,
+    pub list_state: ListState,
 }
 
 impl App {
     pub fn new() -> Self {
+        let mut list_state = ListState::default();
+        list_state.select(Some(0));
+
         Self {
             should_quit: false,
             input_mode: InputMode::Searching,
@@ -96,6 +101,7 @@ impl App {
             show_filters: false,
             filter_cursor: 0,
             filter_edit_buffer: String::new(),
+            list_state,
         }
     }
 
@@ -203,12 +209,14 @@ impl App {
     pub fn next_result(&mut self) {
         if !self.results.is_empty() {
             self.selected_index = (self.selected_index + 1).min(self.results.len() - 1);
+            self.list_state.select(Some(self.selected_index));
         }
     }
 
     pub fn previous_result(&mut self) {
         if self.selected_index > 0 {
             self.selected_index -= 1;
+            self.list_state.select(Some(self.selected_index));
         }
     }
 
@@ -222,6 +230,7 @@ impl App {
         self.results = results;
         self.selected_index = 0;
         self.scroll_offset = 0;
+        self.list_state.select(Some(0));
     }
 
     pub fn clear_error(&mut self) {

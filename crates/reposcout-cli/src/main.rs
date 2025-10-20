@@ -1,6 +1,6 @@
 use clap::Parser;
 use reposcout_cache::CacheManager;
-use reposcout_core::{providers::GitHubProvider, CachedSearchEngine};
+use reposcout_core::{providers::{GitHubProvider, GitLabProvider}, CachedSearchEngine};
 use std::path::PathBuf;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -14,6 +14,10 @@ struct Cli {
     /// GitHub personal access token (or set GITHUB_TOKEN env var)
     #[arg(long, env)]
     github_token: Option<String>,
+
+    /// GitLab personal access token (or set GITLAB_TOKEN env var)
+    #[arg(long, env)]
+    gitlab_token: Option<String>,
 }
 
 #[derive(clap::Subcommand)]
@@ -103,17 +107,18 @@ async fn main() -> anyhow::Result<()> {
                 pushed,
                 &sort,
                 cli.github_token,
+                cli.gitlab_token,
             )
             .await?;
         }
         Some(Commands::Show { name }) => {
-            show_repository(&name, cli.github_token).await?;
+            show_repository(&name, cli.github_token, cli.gitlab_token).await?;
         }
         Some(Commands::Cache { action }) => {
             handle_cache_command(action).await?;
         }
         Some(Commands::Tui) => {
-            run_tui_mode(cli.github_token).await?;
+            run_tui_mode(cli.github_token, cli.gitlab_token).await?;
         }
         None => {
             println!("No command specified. Try --help");
@@ -131,7 +136,8 @@ async fn search_repositories(
     max_stars: Option<u32>,
     pushed: Option<String>,
     sort: &str,
-    token: Option<String>,
+    github_token: Option<String>,
+    gitlab_token: Option<String>,
 ) -> anyhow::Result<()> {
     // Build GitHub search query with filters
     let search_query = build_github_query(query, language, min_stars, max_stars, pushed);
@@ -142,7 +148,9 @@ async fn search_repositories(
     let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
 
     let mut engine = CachedSearchEngine::with_cache(cache);
-    engine.add_provider(Box::new(GitHubProvider::new(token)));
+    // Add both providers - search across both platforms
+    engine.add_provider(Box::new(GitHubProvider::new(github_token)));
+    engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
 
     let mut results = engine.search(&search_query).await?;
 
@@ -172,7 +180,7 @@ async fn search_repositories(
     Ok(())
 }
 
-async fn show_repository(full_name: &str, token: Option<String>) -> anyhow::Result<()> {
+async fn show_repository(full_name: &str, github_token: Option<String>, gitlab_token: Option<String>) -> anyhow::Result<()> {
     // Parse owner/repo format
     let parts: Vec<&str> = full_name.split('/').collect();
     if parts.len() != 2 {
@@ -187,7 +195,9 @@ async fn show_repository(full_name: &str, token: Option<String>) -> anyhow::Resu
     let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
 
     let mut engine = CachedSearchEngine::with_cache(cache);
-    engine.add_provider(Box::new(GitHubProvider::new(token)));
+    // Add both providers - will try both platforms
+    engine.add_provider(Box::new(GitHubProvider::new(github_token)));
+    engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
 
     let repository = engine.get_repository(owner, repo).await?;
 
@@ -293,7 +303,7 @@ fn sort_results(results: &mut [reposcout_core::models::Repository], sort_by: &st
     }
 }
 
-async fn run_tui_mode(token: Option<String>) -> anyhow::Result<()> {
+async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>) -> anyhow::Result<()> {
     use reposcout_tui::{App, run_tui};
 
     let app = App::new();
@@ -301,13 +311,16 @@ async fn run_tui_mode(token: Option<String>) -> anyhow::Result<()> {
     let cache_path_str = cache_path.to_str().unwrap().to_string();
 
     run_tui(app, move |query| {
-        let token_clone = token.clone();
+        let github_token_clone = github_token.clone();
+        let gitlab_token_clone = gitlab_token.clone();
         let cache_path_clone = cache_path_str.clone();
 
         Box::pin(async move {
             let cache = CacheManager::new(&cache_path_clone, 24)?;
             let mut engine = CachedSearchEngine::with_cache(cache);
-            engine.add_provider(Box::new(GitHubProvider::new(token_clone)));
+            // Search both GitHub and GitLab
+            engine.add_provider(Box::new(GitHubProvider::new(github_token_clone)));
+            engine.add_provider(Box::new(GitLabProvider::new(gitlab_token_clone)));
             engine.search(query).await.map_err(|e| e.into())
         })
     })

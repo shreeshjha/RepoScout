@@ -19,16 +19,53 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features
 ```
 
-## Feature Testing
+## Platform Support
 
-### 1. Basic Search
+RepoScout searches across **multiple platforms simultaneously**:
+- **GitHub** - Default, works without token (rate-limited)
+- **GitLab** - Searches GitLab.com projects
+
+### Setting up Tokens (Optional but Recommended)
+
+For higher rate limits and private repository access:
+
 ```bash
-./target/release/reposcout search "rust cli" -n 10
+# GitHub token
+export GITHUB_TOKEN="your_github_token"
+
+# GitLab token
+export GITLAB_TOKEN="your_gitlab_token"
+
+# Or use command-line flags
+./target/release/reposcout --github-token "token1" --gitlab-token "token2" search "rust"
 ```
 
-### 2. Repository Details
+## Feature Testing
+
+### 1. Multi-Platform Search
+
+RepoScout automatically searches **both GitHub and GitLab** in parallel:
+
 ```bash
+# Searches GitHub + GitLab simultaneously
+./target/release/reposcout search "rust cli" -n 10
+
+# You'll see results from both platforms mixed together
+# Look for (GitHub) and (GitLab) labels in results
+```
+
+**Note**: Without tokens, you get ~30 results from GitHub + ~30 from GitLab = ~60 total results!
+
+### 2. Repository Details
+
+Works for both GitHub and GitLab repositories:
+
+```bash
+# GitHub repository
 ./target/release/reposcout show "ratatui/ratatui"
+
+# GitLab repository
+./target/release/reposcout show "gitlab-org/gitlab"
 ```
 
 ### 3. Cache Performance Test
@@ -84,11 +121,15 @@ time ./target/release/reposcout search "rust tui" -n 5
   -n 10
 ```
 
-### 5. Interactive TUI
+### 5. Interactive TUI (Multi-Platform)
+
+The TUI searches both GitHub and GitLab simultaneously:
 
 ```bash
 ./target/release/reposcout tui
 ```
+
+**Note**: Results from both platforms appear in the same list, sorted by stars.
 
 **TUI Controls:**
 
