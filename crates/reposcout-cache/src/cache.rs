@@ -67,6 +67,22 @@ impl CacheManager {
             [],
         )?;
 
+        // Create bookmarks table
+        // Stores user's favorite repositories for quick access
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS bookmarks (
+                id INTEGER PRIMARY KEY,
+                platform TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                data TEXT NOT NULL,
+                bookmarked_at INTEGER NOT NULL,
+                tags TEXT,
+                notes TEXT,
+                UNIQUE(platform, full_name)
+            )",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -238,6 +254,107 @@ impl CacheManager {
             size_bytes: size_bytes as usize,
         })
     }
+
+    // Bookmark management methods
+
+    /// Add a repository to bookmarks
+    pub fn add_bookmark<T: Serialize>(
+        &self,
+        platform: &str,
+        full_name: &str,
+        data: &T,
+        tags: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<()> {
+        let json = serde_json::to_string(data)?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO bookmarks (platform, full_name, data, bookmarked_at, tags, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![platform, full_name, json, now, tags, notes],
+        )?;
+
+        Ok(())
+    }
+
+    /// Remove a bookmark
+    pub fn remove_bookmark(&self, platform: &str, full_name: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM bookmarks WHERE platform = ?1 AND full_name = ?2",
+            params![platform, full_name],
+        )?;
+        Ok(())
+    }
+
+    /// Check if a repository is bookmarked
+    pub fn is_bookmarked(&self, platform: &str, full_name: &str) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM bookmarks WHERE platform = ?1 AND full_name = ?2",
+            params![platform, full_name],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// Get all bookmarks
+    pub fn get_bookmarks<T: for<'de> Deserialize<'de>>(&self) -> Result<Vec<T>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT data FROM bookmarks ORDER BY bookmarked_at DESC",
+        )?;
+
+        let results = stmt
+            .query_map([], |row| {
+                let data: String = row.get(0)?;
+                Ok(data)
+            })?
+            .filter_map(|r| r.ok())
+            .filter_map(|json| serde_json::from_str(&json).ok())
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Get bookmarks with metadata (tags, notes)
+    pub fn get_bookmarks_with_metadata(&self) -> Result<Vec<BookmarkEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT platform, full_name, data, bookmarked_at, tags, notes
+             FROM bookmarks ORDER BY bookmarked_at DESC",
+        )?;
+
+        let results = stmt
+            .query_map([], |row| {
+                Ok(BookmarkEntry {
+                    platform: row.get(0)?,
+                    full_name: row.get(1)?,
+                    data: row.get(2)?,
+                    bookmarked_at: row.get(3)?,
+                    tags: row.get(4)?,
+                    notes: row.get(5)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Clear all bookmarks
+    pub fn clear_bookmarks(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM bookmarks", [])?;
+        Ok(())
+    }
+
+    /// Get bookmark count
+    pub fn bookmark_count(&self) -> Result<usize> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM bookmarks", [], |row| row.get(0))?;
+        Ok(count as usize)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -246,6 +363,16 @@ pub struct CacheStats {
     pub expired_entries: usize,
     pub valid_entries: usize,
     pub size_bytes: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BookmarkEntry {
+    pub platform: String,
+    pub full_name: String,
+    pub data: String,
+    pub bookmarked_at: i64,
+    pub tags: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[cfg(test)]

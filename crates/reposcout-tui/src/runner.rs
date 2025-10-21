@@ -8,16 +8,25 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use reposcout_api::{GitHubClient, GitLabClient};
+use reposcout_cache::CacheManager;
 
 pub async fn run_tui<F>(
     mut app: App,
     mut on_search: F,
     github_client: GitHubClient,
     gitlab_client: GitLabClient,
+    cache: CacheManager,
 ) -> anyhow::Result<()>
 where
     F: FnMut(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<Vec<reposcout_core::models::Repository>>> + '_>>,
 {
+    // Load existing bookmarks
+    if let Ok(bookmarks) = cache.get_bookmarks::<reposcout_core::models::Repository>() {
+        for repo in bookmarks {
+            let key = App::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
+            app.bookmarked.insert(key);
+        }
+    }
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -107,6 +116,38 @@ where
                         }
                         KeyCode::Char('/') => {
                             app.enter_search_mode();
+                        }
+                        KeyCode::Char('b') => {
+                            // Toggle bookmark for current repository
+                            if let Some(repo) = app.selected_repository() {
+                                let platform = repo.platform.to_string().to_lowercase();
+                                let full_name = repo.full_name.clone();
+                                let repo_clone = repo.clone();
+
+                                app.toggle_current_bookmark();
+
+                                // Persist to database
+                                if app.is_current_bookmarked() {
+                                    if let Err(e) = cache.add_bookmark(&platform, &full_name, &repo_clone, None, None) {
+                                        app.error_message = Some(format!("Failed to bookmark: {}", e));
+                                    }
+                                } else {
+                                    if let Err(e) = cache.remove_bookmark(&platform, &full_name) {
+                                        app.error_message = Some(format!("Failed to remove bookmark: {}", e));
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('B') => {
+                            // Toggle bookmarks view
+                            app.toggle_bookmarks_view();
+
+                            if app.show_bookmarks_only {
+                                // Load bookmarks
+                                if let Ok(bookmarks) = cache.get_bookmarks::<reposcout_core::models::Repository>() {
+                                    app.set_results(bookmarks);
+                                }
+                            }
                         }
                         KeyCode::Char('f') | KeyCode::Char('F') => {
                             app.toggle_filters();

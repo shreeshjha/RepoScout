@@ -94,6 +94,10 @@ pub struct App {
     pub readme_cache: std::collections::HashMap<String, String>,
     // Scroll position for README view
     pub readme_scroll: u16,
+    // Track bookmarked repositories (platform + full_name)
+    pub bookmarked: std::collections::HashSet<String>,
+    // Show bookmarks only
+    pub show_bookmarks_only: bool,
 }
 
 impl App {
@@ -120,7 +124,41 @@ impl App {
             readme_loading: false,
             readme_cache: std::collections::HashMap::new(),
             readme_scroll: 0,
+            bookmarked: std::collections::HashSet::new(),
+            show_bookmarks_only: false,
         }
+    }
+
+    /// Get bookmark key for a repository
+    pub fn bookmark_key(platform: &str, full_name: &str) -> String {
+        format!("{}:{}", platform, full_name)
+    }
+
+    /// Check if current repository is bookmarked
+    pub fn is_current_bookmarked(&self) -> bool {
+        if let Some(repo) = self.selected_repository() {
+            let key = Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
+            self.bookmarked.contains(&key)
+        } else {
+            false
+        }
+    }
+
+    /// Add/remove current repository from bookmarks
+    pub fn toggle_current_bookmark(&mut self) {
+        if let Some(repo) = self.selected_repository() {
+            let key = Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
+            if self.bookmarked.contains(&key) {
+                self.bookmarked.remove(&key);
+            } else {
+                self.bookmarked.insert(key);
+            }
+        }
+    }
+
+    /// Toggle showing bookmarks only
+    pub fn toggle_bookmarks_view(&mut self) {
+        self.show_bookmarks_only = !self.show_bookmarks_only;
     }
 
     pub fn toggle_preview_mode(&mut self) {

@@ -95,7 +95,15 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
                 Style::default()
             };
 
+            // Check if this repo is bookmarked
+            let bookmark_key = App::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
+            let is_bookmarked = app.bookmarked.contains(&bookmark_key);
+
             let content = vec![Line::from(vec![
+                Span::styled(
+                    if is_bookmarked { "📚 " } else { "   " },
+                    Style::default().fg(Color::Magenta),
+                ),
                 Span::styled(
                     format!("⭐ {} ", repo.stars),
                     Style::default().fg(Color::Blue),
@@ -109,6 +117,8 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let title = if app.loading {
         "Results (Loading...)"
+    } else if app.show_bookmarks_only {
+        &format!("📚 Bookmarks ({})", app.results.len())
     } else {
         &format!("Results ({})", app.results.len())
     };
@@ -414,7 +424,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                 if app.preview_mode == PreviewMode::Readme {
                     Span::styled("README MODE | j/k: scroll | R: back to stats | q: quit", Style::default().fg(Color::Cyan))
                 } else {
-                    Span::raw("j/k: navigate | /: search | F: filters | R: readme | q: quit | ENTER: open")
+                    Span::raw("j/k: navigate | /: search | F: filters | R: readme | b: bookmark | B: view bookmarks | ENTER: open | q: quit")
                 }
             }
         }

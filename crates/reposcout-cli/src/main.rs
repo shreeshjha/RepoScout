@@ -1,5 +1,5 @@
 use clap::Parser;
-use reposcout_cache::CacheManager;
+use reposcout_cache::{BookmarkEntry, CacheManager};
 use reposcout_core::{providers::{GitHubProvider, GitLabProvider}, CachedSearchEngine};
 use std::path::PathBuf;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -61,6 +61,11 @@ enum Commands {
         #[command(subcommand)]
         action: CacheAction,
     },
+    /// Bookmark management
+    Bookmark {
+        #[command(subcommand)]
+        action: BookmarkAction,
+    },
     /// Launch interactive TUI
     Tui,
 }
@@ -73,6 +78,43 @@ enum CacheAction {
     Clear,
     /// Clean up expired entries
     Cleanup,
+}
+
+#[derive(clap::Subcommand)]
+enum BookmarkAction {
+    /// List all bookmarks
+    List,
+    /// Add a repository to bookmarks
+    Add {
+        /// Repository name (owner/repo)
+        name: String,
+        /// Optional tags (comma-separated)
+        #[arg(short = 't', long)]
+        tags: Option<String>,
+        /// Optional notes
+        #[arg(short = 'n', long)]
+        notes: Option<String>,
+    },
+    /// Remove a bookmark
+    Remove {
+        /// Repository name (owner/repo)
+        name: String,
+    },
+    /// Export bookmarks to file
+    Export {
+        /// Output file path
+        output: String,
+        /// Export format: json or csv
+        #[arg(short = 'f', long, default_value = "json")]
+        format: String,
+    },
+    /// Import bookmarks from file
+    Import {
+        /// Input file path
+        input: String,
+    },
+    /// Clear all bookmarks
+    Clear,
 }
 
 #[tokio::main]
@@ -116,6 +158,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Cache { action }) => {
             handle_cache_command(action).await?;
+        }
+        Some(Commands::Bookmark { action }) => {
+            handle_bookmark_command(action, cli.github_token, cli.gitlab_token).await?;
         }
         Some(Commands::Tui) => {
             run_tui_mode(cli.github_token, cli.gitlab_token).await?;
@@ -261,6 +306,148 @@ async fn handle_cache_command(action: CacheAction) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<String>, gitlab_token: Option<String>) -> anyhow::Result<()> {
+    use reposcout_core::models::Repository;
+
+    let cache_path = get_cache_path()?;
+    let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+
+    match action {
+        BookmarkAction::List => {
+            let bookmarks: Vec<Repository> = cache.get_bookmarks()?;
+
+            if bookmarks.is_empty() {
+                println!("No bookmarks found. Use 'reposcout bookmark add <repo>' to add one.");
+                return Ok(());
+            }
+
+            println!("\n📚 Your Bookmarks ({}):\n", bookmarks.len());
+            for (i, repo) in bookmarks.iter().enumerate() {
+                println!("{}. {} ({})", i + 1, repo.full_name, repo.platform);
+                if let Some(desc) = &repo.description {
+                    println!("   {}", desc);
+                }
+                println!("   ⭐ {} | 🍴 {} | {}",
+                    repo.stars,
+                    repo.forks,
+                    repo.language.as_deref().unwrap_or("Unknown")
+                );
+                println!("   {}\n", repo.url);
+            }
+        }
+        BookmarkAction::Add { name, tags, notes } => {
+            // Parse owner/repo format
+            let parts: Vec<&str> = name.split('/').collect();
+            if parts.len() != 2 {
+                anyhow::bail!("Repository name must be in 'owner/repo' format");
+            }
+
+            let (owner, repo_name) = (parts[0], parts[1]);
+
+            // Fetch repository details
+            let cache_manager = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+            let mut engine = CachedSearchEngine::with_cache(cache_manager);
+            engine.add_provider(Box::new(GitHubProvider::new(github_token)));
+            engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
+
+            let repository = engine.get_repository(owner, repo_name).await?;
+
+            // Add to bookmarks
+            cache.add_bookmark(
+                &repository.platform.to_string().to_lowercase(),
+                &repository.full_name,
+                &repository,
+                tags.as_deref(),
+                notes.as_deref(),
+            )?;
+
+            println!("✅ Bookmarked: {}", repository.full_name);
+        }
+        BookmarkAction::Remove { name } => {
+            // Try to remove from both platforms
+            let removed_github = cache.remove_bookmark("github", &name).is_ok();
+            let removed_gitlab = cache.remove_bookmark("gitlab", &name).is_ok();
+
+            if removed_github || removed_gitlab {
+                println!("✅ Removed bookmark: {}", name);
+            } else {
+                println!("❌ Bookmark not found: {}", name);
+            }
+        }
+        BookmarkAction::Export { output, format } => {
+            let bookmarks = cache.get_bookmarks_with_metadata()?;
+
+            match format.as_str() {
+                "json" => {
+                    let json = serde_json::to_string_pretty(&bookmarks)?;
+                    std::fs::write(&output, json)?;
+                    println!("✅ Exported {} bookmarks to {}", bookmarks.len(), output);
+                }
+                "csv" => {
+                    export_bookmarks_csv(&bookmarks, &output)?;
+                    println!("✅ Exported {} bookmarks to {}", bookmarks.len(), output);
+                }
+                _ => {
+                    anyhow::bail!("Unsupported format: {}. Use 'json' or 'csv'", format);
+                }
+            }
+        }
+        BookmarkAction::Import { input } => {
+            let content = std::fs::read_to_string(&input)?;
+            let bookmarks: Vec<BookmarkEntry> = serde_json::from_str(&content)?;
+
+            for entry in &bookmarks {
+                let repo: Repository = serde_json::from_str(&entry.data)?;
+                cache.add_bookmark(
+                    &entry.platform,
+                    &entry.full_name,
+                    &repo,
+                    entry.tags.as_deref(),
+                    entry.notes.as_deref(),
+                )?;
+            }
+
+            println!("✅ Imported {} bookmarks from {}", bookmarks.len(), input);
+        }
+        BookmarkAction::Clear => {
+            cache.clear_bookmarks()?;
+            println!("✅ All bookmarks cleared");
+        }
+    }
+
+    Ok(())
+}
+
+fn export_bookmarks_csv(bookmarks: &[BookmarkEntry], output: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+
+    let mut file = std::fs::File::create(output)?;
+
+    // Write CSV header
+    writeln!(file, "Platform,Repository,Stars,Forks,Language,Description,URL,Bookmarked At,Tags,Notes")?;
+
+    // Write each bookmark
+    for entry in bookmarks {
+        let repo: reposcout_core::models::Repository = serde_json::from_str(&entry.data)?;
+        writeln!(
+            file,
+            "{},{},{},{},{},{},{},{},{},{}",
+            entry.platform,
+            entry.full_name,
+            repo.stars,
+            repo.forks,
+            repo.language.as_deref().unwrap_or(""),
+            repo.description.as_deref().unwrap_or("").replace(',', ";"),
+            repo.url,
+            entry.bookmarked_at,
+            entry.tags.as_deref().unwrap_or(""),
+            entry.notes.as_deref().unwrap_or("").replace(',', ";"),
+        )?;
+    }
+
+    Ok(())
+}
+
 /// Build GitHub search query with filters
 ///
 /// GitHub uses special syntax like "language:rust stars:>1000"
@@ -315,6 +502,9 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
     let github_client = GitHubClient::new(github_token.clone());
     let gitlab_client = GitLabClient::new(gitlab_token.clone());
 
+    // Create cache manager for bookmarks
+    let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+
     run_tui(app, move |query| {
         let github_token_clone = github_token.clone();
         let gitlab_token_clone = gitlab_token.clone();
@@ -328,7 +518,7 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
             engine.add_provider(Box::new(GitLabProvider::new(gitlab_token_clone)));
             engine.search(query).await.map_err(|e| e.into())
         })
-    }, github_client, gitlab_client)
+    }, github_client, gitlab_client, cache)
     .await
 }
 
