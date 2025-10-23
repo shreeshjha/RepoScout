@@ -155,24 +155,25 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
         .enumerate()
         .map(|(i, repo)| {
             let is_selected = i == app.selected_index;
-            let name_style = if is_selected {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
 
             // Check if this repo is bookmarked
             let bookmark_key = App::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
             let is_bookmarked = app.bookmarked.contains(&bookmark_key);
 
-            // Platform color
-            let platform_color = match repo.platform {
-                reposcout_core::models::Platform::GitHub => Color::Yellow,
-                reposcout_core::models::Platform::GitLab => Color::Magenta,
-                reposcout_core::models::Platform::Bitbucket => Color::Blue,
+            // Platform color for background
+            let platform_bg_color = match repo.platform {
+                reposcout_core::models::Platform::GitHub => Color::Rgb(255, 165, 0), // Orange for GitHub
+                reposcout_core::models::Platform::GitLab => Color::Rgb(252, 109, 38), // GitLab orange
+                reposcout_core::models::Platform::Bitbucket => Color::Rgb(33, 136, 255), // Bitbucket blue
             };
 
-            // Line 1: Bookmark + Stats + Name
+            // Line 1: Bookmark + Stats + Name (BRIGHT and DISTINCTIVE)
+            let name_style = if is_selected {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) // Cyan makes repo names stand out
+            };
+
             let line1 = Line::from(vec![
                 Span::styled(
                     if is_bookmarked { "📚" } else { "  " },
@@ -181,18 +182,18 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
                 Span::raw(" "),
                 Span::styled(
                     format!("⭐{}", format_number(repo.stars)),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(Color::Rgb(255, 215, 0)), // Gold color for stars
                 ),
                 Span::raw("  "),
                 Span::styled(
                     format!("🍴{}", format_number(repo.forks)),
-                    Style::default().fg(Color::Blue),
+                    Style::default().fg(Color::Rgb(100, 149, 237)), // Cornflower blue for forks
                 ),
                 Span::raw("  "),
                 Span::styled(&repo.full_name, name_style),
             ]);
 
-            // Line 2: Language + Platform + Updated
+            // Line 2: Language + Platform + Updated (MUTED secondary info)
             let lang_display = repo.language.as_deref().unwrap_or("Unknown");
             let days_ago = (chrono::Utc::now() - repo.updated_at).num_days();
             let updated_display = if days_ago == 0 {
@@ -209,19 +210,19 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
 
             let line2 = Line::from(vec![
                 Span::raw("     "), // Indent
-                Span::styled("●", Style::default().fg(Color::Magenta)),
+                Span::styled("●", Style::default().fg(Color::Rgb(147, 112, 219))), // Medium purple
                 Span::raw(" "),
-                Span::styled(lang_display, Style::default().fg(Color::Magenta)),
+                Span::styled(lang_display, Style::default().fg(Color::Rgb(147, 112, 219))),
                 Span::raw("  •  "),
                 Span::styled(
                     format!(" {} ", repo.platform),
-                    Style::default().fg(Color::Black).bg(platform_color),
+                    Style::default().fg(Color::Black).bg(platform_bg_color).add_modifier(Modifier::BOLD),
                 ),
                 Span::raw("  •  "),
-                Span::styled(updated_display, Style::default().fg(Color::DarkGray)),
+                Span::styled(updated_display, Style::default().fg(Color::Rgb(128, 128, 128))), // Medium gray
             ]);
 
-            // Line 3: Description (truncated)
+            // Line 3: Description (VERY MUTED so it doesn't compete with name)
             let description = if let Some(desc) = &repo.description {
                 if desc.len() > 60 {
                     format!("     {}...", &desc[..57])
@@ -233,7 +234,7 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
             };
 
             let line3 = Line::from(vec![
-                Span::styled(description, Style::default().fg(Color::Gray)),
+                Span::styled(description, Style::default().fg(Color::Rgb(105, 105, 105))), // Dim gray - very muted
             ]);
 
             let content = vec![line1, line2, line3];
