@@ -12,8 +12,9 @@ pub enum InputMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
-    Stats,   // Show repository statistics
-    Readme,  // Show README content
+    Stats,     // Show repository statistics
+    Readme,    // Show README content
+    Activity,  // Show repository activity/commits
 }
 
 #[derive(Debug, Clone)]
@@ -164,8 +165,27 @@ impl App {
     pub fn toggle_preview_mode(&mut self) {
         self.preview_mode = match self.preview_mode {
             PreviewMode::Stats => PreviewMode::Readme,
+            PreviewMode::Readme => PreviewMode::Activity,
+            PreviewMode::Activity => PreviewMode::Stats,
+        };
+    }
+
+    pub fn next_preview_tab(&mut self) {
+        self.preview_mode = match self.preview_mode {
+            PreviewMode::Stats => PreviewMode::Readme,
+            PreviewMode::Readme => PreviewMode::Activity,
+            PreviewMode::Activity => PreviewMode::Stats,
+        };
+        self.reset_readme_scroll();
+    }
+
+    pub fn previous_preview_tab(&mut self) {
+        self.preview_mode = match self.preview_mode {
+            PreviewMode::Stats => PreviewMode::Activity,
+            PreviewMode::Activity => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Stats,
         };
+        self.reset_readme_scroll();
     }
 
     pub fn set_readme(&mut self, content: String) {

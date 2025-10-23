@@ -18,4 +18,5 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 termimad = { workspace = true }
+chrono = { workspace = true }
 open = "5.3"

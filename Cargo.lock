@@ -1636,6 +1636,7 @@ name = "reposcout-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "crossterm 0.28.1",
  "open",
  "ratatui",

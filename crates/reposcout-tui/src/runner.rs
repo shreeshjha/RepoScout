@@ -155,6 +155,14 @@ where
                                 app.enter_filter_mode();
                             }
                         }
+                        KeyCode::Tab => {
+                            // Tab cycles through preview tabs
+                            app.next_preview_tab();
+                        }
+                        KeyCode::BackTab => {
+                            // Shift+Tab cycles backward through preview tabs
+                            app.previous_preview_tab();
+                        }
                         KeyCode::Char('r') | KeyCode::Char('R') => {
                             use crate::PreviewMode;
 
