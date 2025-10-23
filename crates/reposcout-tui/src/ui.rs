@@ -223,9 +223,12 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
             ]);
 
             // Line 3: Description (VERY MUTED so it doesn't compete with name)
+            // Use char_indices() to safely truncate at character boundaries
             let description = if let Some(desc) = &repo.description {
-                if desc.len() > 60 {
-                    format!("     {}...", &desc[..57])
+                let char_count = desc.chars().count();
+                if char_count > 60 {
+                    let truncated: String = desc.chars().take(57).collect();
+                    format!("     {}...", truncated)
                 } else {
                     format!("     {}", desc)
                 }
