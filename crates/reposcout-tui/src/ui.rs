@@ -292,6 +292,7 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
         PreviewMode::Stats => (render_stats_preview(app), 0),
         PreviewMode::Readme => (render_readme_preview(app), app.readme_scroll),
         PreviewMode::Activity => (render_activity_preview(app), 0),
+        PreviewMode::Dependencies => (render_dependencies_preview(app), 0),
     };
 
     let paragraph = Paragraph::new(content)
@@ -309,6 +310,7 @@ fn render_preview_tabs(frame: &mut Frame, app: &App, area: Rect) {
         ("Stats", PreviewMode::Stats),
         ("README", PreviewMode::Readme),
         ("Activity", PreviewMode::Activity),
+        ("Dependencies", PreviewMode::Dependencies),
     ];
 
     let tab_spans: Vec<Span> = tabs
@@ -644,6 +646,202 @@ fn render_activity_preview(app: &App) -> Vec<Line> {
         ]));
 
         lines
+    } else {
+        vec![
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "No repository selected",
+                Style::default().fg(Color::Gray),
+            )]),
+        ]
+    }
+}
+
+fn render_dependencies_preview(app: &App) -> Vec<Line> {
+    if app.dependencies_loading {
+        return vec![
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "Loading dependencies...",
+                Style::default().fg(Color::Yellow),
+            )]),
+        ];
+    }
+
+    if let Some(deps_option) = app.get_cached_dependencies() {
+        if let Some(deps) = deps_option {
+            let mut lines = vec![
+                Line::from(vec![Span::styled(
+                    format!("{} Dependencies", deps.ecosystem),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(""),
+            ];
+
+            // Summary
+            lines.push(Line::from(vec![
+                Span::raw("📦 Total:       "),
+                Span::styled(
+                    deps.total_count.to_string(),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("⚙️  Runtime:     "),
+                Span::styled(
+                    deps.runtime_count.to_string(),
+                    Style::default().fg(Color::Green),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("🔧 Dev:         "),
+                Span::styled(
+                    deps.dev_count.to_string(),
+                    Style::default().fg(Color::Blue),
+                ),
+            ]));
+
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![Span::styled(
+                "Dependencies List",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            )]));
+            lines.push(Line::from(""));
+
+            // Group dependencies by type
+            let runtime_deps: Vec<_> = deps.dependencies.iter()
+                .filter(|d| matches!(d.dep_type, reposcout_deps::DependencyType::Runtime))
+                .collect();
+            let dev_deps: Vec<_> = deps.dependencies.iter()
+                .filter(|d| matches!(d.dep_type, reposcout_deps::DependencyType::Dev))
+                .collect();
+            let build_deps: Vec<_> = deps.dependencies.iter()
+                .filter(|d| matches!(d.dep_type, reposcout_deps::DependencyType::Build))
+                .collect();
+
+            // Runtime dependencies
+            if !runtime_deps.is_empty() {
+                lines.push(Line::from(vec![Span::styled(
+                    "Runtime:",
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )]));
+                for dep in runtime_deps.iter().take(20) {
+                    lines.push(Line::from(vec![
+                        Span::raw("  • "),
+                        Span::styled(
+                            dep.name.clone(),
+                            Style::default().fg(Color::White),
+                        ),
+                        Span::raw(" "),
+                        Span::styled(
+                            format!("({})", dep.version),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                }
+                if runtime_deps.len() > 20 {
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(
+                            format!("... and {} more", runtime_deps.len() - 20),
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        ),
+                    ]));
+                }
+                lines.push(Line::from(""));
+            }
+
+            // Dev dependencies
+            if !dev_deps.is_empty() {
+                lines.push(Line::from(vec![Span::styled(
+                    "Development:",
+                    Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+                )]));
+                for dep in dev_deps.iter().take(15) {
+                    lines.push(Line::from(vec![
+                        Span::raw("  • "),
+                        Span::styled(
+                            dep.name.clone(),
+                            Style::default().fg(Color::White),
+                        ),
+                        Span::raw(" "),
+                        Span::styled(
+                            format!("({})", dep.version),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                }
+                if dev_deps.len() > 15 {
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(
+                            format!("... and {} more", dev_deps.len() - 15),
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        ),
+                    ]));
+                }
+                lines.push(Line::from(""));
+            }
+
+            // Build dependencies
+            if !build_deps.is_empty() {
+                lines.push(Line::from(vec![Span::styled(
+                    "Build:",
+                    Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                )]));
+                for dep in build_deps.iter().take(10) {
+                    lines.push(Line::from(vec![
+                        Span::raw("  • "),
+                        Span::styled(
+                            dep.name.clone(),
+                            Style::default().fg(Color::White),
+                        ),
+                        Span::raw(" "),
+                        Span::styled(
+                            format!("({})", dep.version),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                }
+                if build_deps.len() > 10 {
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(
+                            format!("... and {} more", build_deps.len() - 10),
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        ),
+                    ]));
+                }
+            }
+
+            lines
+        } else {
+            vec![
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "No dependency file found",
+                    Style::default().fg(Color::DarkGray),
+                )]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "This repository doesn't have a supported dependency file:",
+                    Style::default().fg(Color::Gray),
+                )]),
+                Line::from(vec![Span::raw("  • Cargo.toml (Rust)")]),
+                Line::from(vec![Span::raw("  • package.json (Node.js)")]),
+                Line::from(vec![Span::raw("  • requirements.txt (Python)")]),
+            ]
+        }
+    } else if let Some(repo) = app.selected_repository() {
+        vec![
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                format!("Press 'd' to analyze dependencies for {}", repo.full_name),
+                Style::default().fg(Color::Yellow),
+            )]),
+        ]
     } else {
         vec![
             Line::from(""),

@@ -11,6 +11,7 @@ repository.workspace = true
 reposcout-core = { path = "../reposcout-core" }
 reposcout-api = { path = "../reposcout-api" }
 reposcout-cache = { path = "../reposcout-cache" }
+reposcout-deps = { path = "../reposcout-deps" }
 
 ratatui = { workspace = true }
 crossterm = { workspace = true }

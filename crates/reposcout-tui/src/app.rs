@@ -1,5 +1,6 @@
 // TUI application state and event handling
 use reposcout_core::models::Repository;
+use reposcout_deps::DependencyInfo;
 use ratatui::widgets::ListState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,9 +14,10 @@ pub enum InputMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
-    Stats,     // Show repository statistics
-    Readme,    // Show README content
-    Activity,  // Show repository activity/commits
+    Stats,         // Show repository statistics
+    Readme,        // Show README content
+    Activity,      // Show repository activity/commits
+    Dependencies,  // Show dependency analysis
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +106,9 @@ pub struct App {
     pub fuzzy_input: String,
     pub all_results: Vec<Repository>, // Store original results before fuzzy filtering
     pub fuzzy_match_count: usize,
+    // Dependency analysis state
+    pub dependencies_cache: std::collections::HashMap<String, Option<DependencyInfo>>,
+    pub dependencies_loading: bool,
 }
 
 impl App {
@@ -135,6 +140,8 @@ impl App {
             fuzzy_input: String::new(),
             all_results: Vec::new(),
             fuzzy_match_count: 0,
+            dependencies_cache: std::collections::HashMap::new(),
+            dependencies_loading: false,
         }
     }
 
@@ -239,7 +246,8 @@ impl App {
         self.preview_mode = match self.preview_mode {
             PreviewMode::Stats => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Activity,
-            PreviewMode::Activity => PreviewMode::Stats,
+            PreviewMode::Activity => PreviewMode::Dependencies,
+            PreviewMode::Dependencies => PreviewMode::Stats,
         };
     }
 
@@ -247,14 +255,16 @@ impl App {
         self.preview_mode = match self.preview_mode {
             PreviewMode::Stats => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Activity,
-            PreviewMode::Activity => PreviewMode::Stats,
+            PreviewMode::Activity => PreviewMode::Dependencies,
+            PreviewMode::Dependencies => PreviewMode::Stats,
         };
         self.reset_readme_scroll();
     }
 
     pub fn previous_preview_tab(&mut self) {
         self.preview_mode = match self.preview_mode {
-            PreviewMode::Stats => PreviewMode::Activity,
+            PreviewMode::Stats => PreviewMode::Dependencies,
+            PreviewMode::Dependencies => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Stats,
         };
@@ -453,6 +463,30 @@ impl App {
 
     pub fn get_search_query(&self) -> String {
         self.filters.build_query(&self.search_input)
+    }
+
+    /// Get cached dependencies for current repository
+    pub fn get_cached_dependencies(&self) -> Option<&Option<DependencyInfo>> {
+        if let Some(repo) = self.selected_repository() {
+            self.dependencies_cache.get(&repo.full_name)
+        } else {
+            None
+        }
+    }
+
+    /// Cache dependencies for a repository
+    pub fn cache_dependencies(&mut self, repo_name: String, deps: Option<DependencyInfo>) {
+        self.dependencies_cache.insert(repo_name, deps);
+    }
+
+    /// Start dependency loading
+    pub fn start_dependencies_loading(&mut self) {
+        self.dependencies_loading = true;
+    }
+
+    /// Stop dependency loading
+    pub fn stop_dependencies_loading(&mut self) {
+        self.dependencies_loading = false;
     }
 }
 

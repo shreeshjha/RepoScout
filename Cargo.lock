@@ -1641,6 +1641,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "reposcout-deps"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "toml",
+]
+
+[[package]]
 name = "reposcout-tui"
 version = "0.1.0"
 dependencies = [
@@ -1653,6 +1664,7 @@ dependencies = [
  "reposcout-api",
  "reposcout-cache",
  "reposcout-core",
+ "reposcout-deps",
  "termimad",
  "tokio",
  "tracing",

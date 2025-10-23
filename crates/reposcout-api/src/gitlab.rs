@@ -164,6 +164,61 @@ impl GitLabClient {
         .await
     }
 
+    /// Get file content from project repository
+    pub async fn get_file_content(&self, path: &str, file_path: &str) -> Result<String> {
+        // GitLab uses URL-encoded paths for both project and file
+        let encoded_path = urlencoding::encode(path);
+        let encoded_file = urlencoding::encode(file_path);
+        let url = format!("{}/projects/{}/repository/files/{}/raw", self.base_url, encoded_path, encoded_file);
+        let token = self.token.clone();
+
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client.get(&url).query(&[("ref", "HEAD")]);
+
+            if let Some(ref token) = token {
+                request = request.header("PRIVATE-TOKEN", token);
+            }
+
+            let response = request.send().await?;
+
+            if response.status() == 404 {
+                return Err(GitLabError::NotFound(format!("{} not found in {}", file_path, path)));
+            }
+
+            if response.status() == 401 {
+                return Err(GitLabError::AuthRequired);
+            }
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitLabError::RequestFailed(format!(
+                    "Status {}: {}",
+                    status, body
+                )));
+            }
+
+            let content = response.text().await?;
+            Ok(content)
+        })
+        .await
+    }
+
+    /// Get Cargo.toml for Rust projects
+    pub async fn get_cargo_toml(&self, path: &str) -> Result<String> {
+        self.get_file_content(path, "Cargo.toml").await
+    }
+
+    /// Get package.json for Node.js projects
+    pub async fn get_package_json(&self, path: &str) -> Result<String> {
+        self.get_file_content(path, "package.json").await
+    }
+
+    /// Get requirements.txt for Python projects
+    pub async fn get_requirements_txt(&self, path: &str) -> Result<String> {
+        self.get_file_content(path, "requirements.txt").await
+    }
+
     /// Get a specific project by path (e.g., "gitlab-org/gitlab")
     pub async fn get_project(&self, path: &str) -> Result<GitLabProject> {
         // GitLab uses URL-encoded paths

@@ -169,7 +169,7 @@ where
                                 }
                             }
                         }
-                        KeyCode::Char('f') | KeyCode::Char('F') => {
+                        KeyCode::Char('F') => {
                             app.toggle_filters();
                             if app.show_filters {
                                 app.enter_filter_mode();
@@ -239,6 +239,133 @@ where
                             } else {
                                 // Just toggle back to stats
                                 app.toggle_preview_mode();
+                            }
+                        }
+                        KeyCode::Char('d') | KeyCode::Char('D') => {
+                            use crate::PreviewMode;
+
+                            // Fetch dependencies for current repository
+                            if let Some(repo) = app.selected_repository() {
+                                let repo_name = repo.full_name.clone();
+                                let platform = repo.platform;
+                                let language = repo.language.clone();
+
+                                // Check if already cached
+                                if !app.dependencies_cache.contains_key(&repo_name) {
+                                    // Switch to dependencies view
+                                    app.preview_mode = PreviewMode::Dependencies;
+                                    app.start_dependencies_loading();
+
+                                    // Determine which dependency file to fetch based on language
+                                    let deps_result: anyhow::Result<Option<reposcout_deps::DependencyInfo>> = match language.as_deref() {
+                                        Some("Rust") => {
+                                            match platform {
+                                                reposcout_core::models::Platform::GitHub => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match github_client.get_cargo_toml(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_cargo_toml(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
+                                                reposcout_core::models::Platform::GitLab => {
+                                                    match gitlab_client.get_cargo_toml(&repo_name).await {
+                                                        Ok(content) => {
+                                                            reposcout_deps::parse_cargo_toml(&content)
+                                                                .map(Some)
+                                                                .map_err(|e| anyhow::anyhow!("{}", e))
+                                                        }
+                                                        Err(_) => Ok(None),
+                                                    }
+                                                }
+                                                _ => Ok(None),
+                                            }
+                                        }
+                                        Some("JavaScript") | Some("TypeScript") => {
+                                            match platform {
+                                                reposcout_core::models::Platform::GitHub => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match github_client.get_package_json(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_package_json(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
+                                                reposcout_core::models::Platform::GitLab => {
+                                                    match gitlab_client.get_package_json(&repo_name).await {
+                                                        Ok(content) => {
+                                                            reposcout_deps::parse_package_json(&content)
+                                                                .map(Some)
+                                                                .map_err(|e| anyhow::anyhow!("{}", e))
+                                                        }
+                                                        Err(_) => Ok(None),
+                                                    }
+                                                }
+                                                _ => Ok(None),
+                                            }
+                                        }
+                                        Some("Python") => {
+                                            match platform {
+                                                reposcout_core::models::Platform::GitHub => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match github_client.get_requirements_txt(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_requirements_txt(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
+                                                reposcout_core::models::Platform::GitLab => {
+                                                    match gitlab_client.get_requirements_txt(&repo_name).await {
+                                                        Ok(content) => {
+                                                            reposcout_deps::parse_requirements_txt(&content)
+                                                                .map(Some)
+                                                                .map_err(|e| anyhow::anyhow!("{}", e))
+                                                        }
+                                                        Err(_) => Ok(None),
+                                                    }
+                                                }
+                                                _ => Ok(None),
+                                            }
+                                        }
+                                        _ => Ok(None),
+                                    };
+
+                                    match deps_result {
+                                        Ok(deps) => {
+                                            app.cache_dependencies(repo_name, deps);
+                                        }
+                                        Err(e) => {
+                                            app.error_message = Some(format!("Failed to fetch dependencies: {}", e));
+                                            app.cache_dependencies(repo_name, None);
+                                        }
+                                    }
+
+                                    app.stop_dependencies_loading();
+                                } else {
+                                    // Already cached, just switch to dependencies view
+                                    app.preview_mode = PreviewMode::Dependencies;
+                                }
                             }
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
