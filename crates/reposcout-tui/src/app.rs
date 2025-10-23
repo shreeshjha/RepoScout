@@ -4,10 +4,11 @@ use ratatui::widgets::ListState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMode {
-    Normal,      // Navigating results
-    Searching,   // Typing in search box
-    Filtering,   // Navigating filters
+    Normal,        // Navigating results
+    Searching,     // Typing in search box
+    Filtering,     // Navigating filters
     EditingFilter, // Actively typing in a filter field
+    FuzzySearch,   // Fuzzy filtering current results
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +100,10 @@ pub struct App {
     pub bookmarked: std::collections::HashSet<String>,
     // Show bookmarks only
     pub show_bookmarks_only: bool,
+    // Fuzzy search state
+    pub fuzzy_input: String,
+    pub all_results: Vec<Repository>, // Store original results before fuzzy filtering
+    pub fuzzy_match_count: usize,
 }
 
 impl App {
@@ -127,7 +132,75 @@ impl App {
             readme_scroll: 0,
             bookmarked: std::collections::HashSet::new(),
             show_bookmarks_only: false,
+            fuzzy_input: String::new(),
+            all_results: Vec::new(),
+            fuzzy_match_count: 0,
         }
+    }
+
+    /// Enter fuzzy search mode
+    pub fn enter_fuzzy_mode(&mut self) {
+        self.input_mode = InputMode::FuzzySearch;
+        self.fuzzy_input.clear();
+        // Store all current results
+        self.all_results = self.results.clone();
+        self.fuzzy_match_count = self.results.len();
+    }
+
+    /// Exit fuzzy search mode
+    pub fn exit_fuzzy_mode(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.fuzzy_input.clear();
+        // Restore all results
+        if !self.all_results.is_empty() {
+            self.results = self.all_results.clone();
+            self.all_results.clear();
+        }
+        self.selected_index = 0;
+        self.list_state.select(Some(0));
+    }
+
+    /// Apply fuzzy filter to results
+    pub fn apply_fuzzy_filter(&mut self) {
+        use fuzzy_matcher::FuzzyMatcher;
+        use fuzzy_matcher::skim::SkimMatcherV2;
+
+        if self.fuzzy_input.is_empty() {
+            // No filter, show all results
+            self.results = self.all_results.clone();
+            self.fuzzy_match_count = self.results.len();
+        } else {
+            let matcher = SkimMatcherV2::default();
+            let query = self.fuzzy_input.to_lowercase();
+
+            // Filter and score results
+            let mut scored_results: Vec<(Repository, i64)> = self
+                .all_results
+                .iter()
+                .filter_map(|repo| {
+                    // Match against repo name and description
+                    let name_score = matcher.fuzzy_match(&repo.full_name.to_lowercase(), &query);
+                    let desc_score = repo
+                        .description
+                        .as_ref()
+                        .and_then(|d| matcher.fuzzy_match(&d.to_lowercase(), &query));
+
+                    // Take the best score
+                    let score = name_score.or(desc_score)?;
+                    Some((repo.clone(), score))
+                })
+                .collect();
+
+            // Sort by score (highest first)
+            scored_results.sort_by(|a, b| b.1.cmp(&a.1));
+
+            self.results = scored_results.into_iter().map(|(repo, _)| repo).collect();
+            self.fuzzy_match_count = self.results.len();
+        }
+
+        // Reset selection
+        self.selected_index = 0;
+        self.list_state.select(Some(0));
     }
 
     /// Get bookmark key for a repository

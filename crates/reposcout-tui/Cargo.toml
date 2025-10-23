@@ -19,4 +19,5 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 termimad = { workspace = true }
 chrono = { workspace = true }
+fuzzy-matcher = { workspace = true }
 open = "5.3"

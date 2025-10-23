@@ -110,12 +110,32 @@ where
                         }
                         _ => {}
                     },
+                    InputMode::FuzzySearch => match key.code {
+                        KeyCode::Esc => {
+                            app.exit_fuzzy_mode();
+                        }
+                        KeyCode::Char(c) => {
+                            app.fuzzy_input.push(c);
+                            app.apply_fuzzy_filter();
+                        }
+                        KeyCode::Backspace => {
+                            app.fuzzy_input.pop();
+                            app.apply_fuzzy_filter();
+                        }
+                        _ => {}
+                    },
                     InputMode::Normal => match key.code {
                         KeyCode::Char('q') => {
                             break;
                         }
                         KeyCode::Char('/') => {
                             app.enter_search_mode();
+                        }
+                        KeyCode::Char('f') => {
+                            // Enter fuzzy search mode
+                            if !app.results.is_empty() {
+                                app.enter_fuzzy_mode();
+                            }
                         }
                         KeyCode::Char('b') => {
                             // Toggle bookmark for current repository

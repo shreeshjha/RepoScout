@@ -59,6 +59,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Render preview pane
     render_preview(frame, app, content_chunks[1]);
 
+    // Render fuzzy search overlay if active
+    if app.input_mode == InputMode::FuzzySearch {
+        render_fuzzy_search_overlay(frame, app, content_chunks[0]);
+    }
+
     // Render status bar
     render_status_bar(frame, app, status_area);
 }
@@ -125,7 +130,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
 fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     let input_style = match app.input_mode {
         InputMode::Searching => Style::default().fg(Color::Yellow),
-        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter => Style::default(),
+        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch => Style::default(),
     };
 
     let input = Paragraph::new(app.search_input.as_str())
@@ -797,12 +802,15 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             InputMode::EditingFilter => {
                 Span::styled("EDITING | Type value | ENTER: save | ESC: cancel", Style::default().fg(Color::Green))
             }
+            InputMode::FuzzySearch => {
+                Span::styled("FUZZY SEARCH | Type to filter | ESC: exit", Style::default().fg(Color::Magenta))
+            }
             InputMode::Normal => {
                 use crate::PreviewMode;
                 if app.preview_mode == PreviewMode::Readme {
                     Span::styled("README | j/k: scroll | TAB: next tab | q: quit", Style::default().fg(Color::Cyan))
                 } else {
-                    Span::raw("j/k: navigate | /: search | F: filters | TAB: tabs | b: bookmark | B: view bookmarks | ENTER: open | q: quit")
+                    Span::raw("j/k: navigate | /: search | f: fuzzy filter | F: filters | TAB: tabs | b: bookmark | B: view bookmarks | ENTER: open | q: quit")
                 }
             }
         }
@@ -810,4 +818,41 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 
     let paragraph = Paragraph::new(Line::from(vec![status]));
     frame.render_widget(paragraph, area);
+}
+
+fn render_fuzzy_search_overlay(frame: &mut Frame, app: &App, area: Rect) {
+    // Create a centered overlay area at the top of the results list
+    let overlay_area = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: 3,
+    };
+
+    // Fuzzy search input box
+    let fuzzy_text = vec![
+        Line::from(vec![
+            Span::styled("🔍 Fuzzy Filter: ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled(&app.fuzzy_input, Style::default().fg(Color::Yellow)),
+            Span::styled("█", Style::default().fg(Color::Yellow)), // Cursor
+        ]),
+    ];
+
+    let match_info = if app.fuzzy_input.is_empty() {
+        format!("{} results", app.all_results.len())
+    } else {
+        format!("{}/{} matches", app.fuzzy_match_count, app.all_results.len())
+    };
+
+    let fuzzy_widget = Paragraph::new(fuzzy_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(match_info)
+                .title_alignment(ratatui::layout::Alignment::Right)
+                .border_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))
+                .style(Style::default().bg(Color::Black))
+        );
+
+    frame.render_widget(fuzzy_widget, overlay_area);
 }
