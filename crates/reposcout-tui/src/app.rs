@@ -566,11 +566,13 @@ impl App {
             SearchMode::Repository => SearchMode::Code,
             SearchMode::Code => SearchMode::Repository,
         };
-        // Clear results when switching modes
+        // Clear results and errors when switching modes
         self.code_results.clear();
         self.results.clear();
         self.code_selected_index = 0;
         self.selected_index = 0;
+        self.error_message = None;
+        self.loading = false;
     }
 
     /// Get the currently selected code search result

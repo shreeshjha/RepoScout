@@ -110,12 +110,26 @@ where
                                                 }
                                             }
                                             Err(e) => {
+                                                let error_str = e.to_string();
+                                                if error_str.contains("401") || error_str.contains("Unauthorized") || error_str.contains("authentication") {
+                                                    app.error_message = Some("Code search requires authentication. Please set GITHUB_TOKEN environment variable.".to_string());
+                                                } else if error_str.contains("Rate limit") {
+                                                    app.error_message = Some("Rate limit exceeded. Please wait a moment and try again.".to_string());
+                                                } else {
+                                                    app.error_message = Some(format!("GitHub code search failed: {}", e));
+                                                }
+                                                app.loading = false;
                                                 tracing::warn!("GitHub code search failed: {}", e);
+                                                // Don't add any results on error
                                             }
                                         }
 
                                         // Sort by stars
                                         all_results.sort_by(|a, b| b.repository_stars.cmp(&a.repository_stars));
+
+                                        if all_results.is_empty() {
+                                            app.error_message = Some("No code matches found. Try a different search query.".to_string());
+                                        }
 
                                         app.set_code_results(all_results);
                                         app.loading = false;
@@ -193,7 +207,6 @@ where
                         KeyCode::Char('M') => {
                             // Toggle between repository and code search mode
                             app.toggle_search_mode();
-                            app.error_message = None;
                         }
                         KeyCode::Char('/') => {
                             app.enter_search_mode();
