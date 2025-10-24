@@ -36,6 +36,7 @@ where
 
     // Main loop
     loop {
+        // Clear and redraw terminal
         terminal.draw(|f| crate::ui::render(f, &mut app))?;
 
         if let Event::Key(key) = event::read()? {
@@ -46,6 +47,8 @@ where
                             if !app.search_input.is_empty() {
                                 app.loading = true;
                                 app.enter_normal_mode();
+                                // Clear terminal before search
+                                terminal.clear()?;
 
                                 match app.search_mode {
                                     SearchMode::Repository => {
@@ -55,9 +58,18 @@ where
                                             Ok(results) => {
                                                 app.set_results(results);
                                                 app.loading = false;
+                                                app.error_message = None;
                                             }
                                             Err(e) => {
-                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                let error_str = e.to_string();
+                                                let error_message = if error_str.contains("Network") || error_str.contains("network") {
+                                                    "Network error. Check your connection.".to_string()
+                                                } else if error_str.len() > 100 {
+                                                    format!("{}...", &error_str[..100])
+                                                } else {
+                                                    error_str
+                                                };
+                                                app.error_message = Some(error_message);
                                                 app.loading = false;
                                             }
                                         }
@@ -111,13 +123,24 @@ where
                                             }
                                             Err(e) => {
                                                 let error_str = e.to_string();
-                                                if error_str.contains("401") || error_str.contains("Unauthorized") || error_str.contains("authentication") {
-                                                    app.error_message = Some("Code search requires authentication. Please set GITHUB_TOKEN environment variable.".to_string());
+                                                let error_message = if error_str.contains("401") || error_str.contains("Unauthorized") || error_str.contains("authentication") {
+                                                    "Code search requires authentication. Set GITHUB_TOKEN environment variable.".to_string()
                                                 } else if error_str.contains("Rate limit") {
-                                                    app.error_message = Some("Rate limit exceeded. Please wait a moment and try again.".to_string());
+                                                    "Rate limit exceeded. Wait a moment and try again.".to_string()
+                                                } else if error_str.contains("Network") || error_str.contains("network") {
+                                                    "Network error. Check your connection and try again.".to_string()
+                                                } else if error_str.contains("decode") || error_str.contains("parse") {
+                                                    "API response error. Try again later.".to_string()
                                                 } else {
-                                                    app.error_message = Some(format!("GitHub code search failed: {}", e));
-                                                }
+                                                    // Truncate long error messages
+                                                    let short_msg = if error_str.len() > 100 {
+                                                        format!("{}...", &error_str[..100])
+                                                    } else {
+                                                        error_str
+                                                    };
+                                                    format!("Search failed: {}", short_msg)
+                                                };
+                                                app.error_message = Some(error_message);
                                                 app.loading = false;
                                                 tracing::warn!("GitHub code search failed: {}", e);
                                                 // Don't add any results on error
@@ -207,6 +230,8 @@ where
                         KeyCode::Char('M') => {
                             // Toggle between repository and code search mode
                             app.toggle_search_mode();
+                            // Force full redraw
+                            terminal.clear()?;
                         }
                         KeyCode::Char('/') => {
                             app.enter_search_mode();
