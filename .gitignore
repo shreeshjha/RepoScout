@@ -44,3 +44,7 @@ $RECYCLE_BIN/
 *.bak
 *.tmp
 *.temp
+
+# Documentation files - keep local except README
+*.md
+!README.md

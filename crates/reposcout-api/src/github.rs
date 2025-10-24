@@ -218,6 +218,67 @@ impl GitHubClient {
         self.get_file_content(owner, repo, "requirements.txt").await
     }
 
+    /// Search for code across GitHub repositories
+    ///
+    /// GitHub Code Search API has special rate limits:
+    /// - 20 requests per minute for authenticated users
+    /// - 5 requests per minute for unauthenticated
+    pub async fn search_code(&self, query: &str, per_page: u32) -> Result<Vec<CodeSearchItem>> {
+        let url = format!("{}/search/code", self.base_url);
+        let token = self.token.clone();
+
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client
+                .get(&url)
+                .query(&[
+                    ("q", query),
+                    ("per_page", &per_page.to_string()),
+                ])
+                // Request text matches to get code snippets
+                .header(
+                    reqwest::header::ACCEPT,
+                    reqwest::header::HeaderValue::from_static("application/vnd.github.text-match+json"),
+                );
+
+            if let Some(ref token) = token {
+                request = request.bearer_auth(token);
+            }
+
+            let response = request.send().await?;
+
+            // Check rate limit before processing response
+            self.check_rate_limit(&response)?;
+
+            if response.status() == 404 {
+                return Err(GitHubError::NotFound(query.to_string()));
+            }
+
+            let status = response.status();
+
+            // Don't retry client errors
+            if status.is_client_error() && !is_retryable_status(status) {
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitHubError::RequestFailed(format!(
+                    "Status {}: {}",
+                    status, body
+                )));
+            }
+
+            // Retry server errors
+            if !response.status().is_success() {
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitHubError::RequestFailed(format!(
+                    "Status {}: {}",
+                    status, body
+                )));
+            }
+
+            let search_result: CodeSearchResponse = response.json().await?;
+            Ok(search_result.items)
+        })
+        .await
+    }
+
     /// Get detailed info about a specific repository
     pub async fn get_repository(&self, owner: &str, repo: &str) -> Result<GitHubRepo> {
         let url = format!("{}/repos/{}/{}", self.base_url, owner, repo);
@@ -281,10 +342,51 @@ impl GitHubClient {
     }
 }
 
-/// GitHub API search response
+/// GitHub API repository search response
 #[derive(Debug, Deserialize)]
 struct SearchResponse {
     items: Vec<GitHubRepo>,
+}
+
+/// GitHub API code search response
+#[derive(Debug, Deserialize)]
+struct CodeSearchResponse {
+    items: Vec<CodeSearchItem>,
+}
+
+/// GitHub code search result item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSearchItem {
+    pub name: String,
+    pub path: String,
+    pub sha: String,
+    pub url: String,
+    pub git_url: String,
+    pub html_url: String,
+    pub repository: GitHubRepo,
+    #[serde(default)]
+    pub text_matches: Vec<TextMatch>,
+}
+
+/// Text match containing the actual code snippet
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextMatch {
+    #[serde(default)]
+    pub object_url: Option<String>,
+    #[serde(default)]
+    pub object_type: Option<String>,
+    #[serde(default)]
+    pub property: Option<String>,
+    pub fragment: String,
+    #[serde(default)]
+    pub matches: Vec<Match>,
+}
+
+/// Individual match within a text fragment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Match {
+    pub text: String,
+    pub indices: Vec<usize>,
 }
 
 /// GitHub repository representation

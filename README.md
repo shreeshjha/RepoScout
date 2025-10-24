@@ -12,9 +12,11 @@ RepoScout lets you search, discover, and manage repositories across GitHub, GitL
 ## Features
 
 - 🔍 **Multi-platform search** - Search GitHub, GitLab, Bitbucket simultaneously
+- 📝 **Code search** - Search for code snippets across millions of repositories
 - 🎨 **Beautiful TUI** - Terminal UI that doesn't look like it's from 1985
 - 💾 **Smart caching** - Works offline with intelligent SQLite + FTS5 caching
-- 🤖 **AI-powered recommendations** - Semantic search and personalized suggestions
+- 📚 **Bookmarks** - Save and organize your favorite repositories
+- 🔬 **Dependency analysis** - View project dependencies (Cargo, npm, pip)
 - ⚡ **Fast** - Async I/O and parallel API requests
 - 🔧 **Flexible** - Use as CLI or interactive TUI
 
@@ -36,10 +38,20 @@ Binary will be at `target/release/reposcout`
 # Search for repositories
 reposcout search "rust tui"
 
+# Search for code within repositories (requires GitHub token)
+export GITHUB_TOKEN="your_token_here"
+reposcout code "fn main" --language rust --limit 10
+
+# Search code in specific repository
+reposcout code "authentication" --repo "rust-lang/rust"
+
+# Search by file extension
+reposcout code "error handling" --extension rs
+
 # Show repository details
 reposcout show "ratatui/ratatui"
 
-# Launch interactive TUI (coming soon)
+# Launch interactive TUI
 reposcout tui
 ```
 

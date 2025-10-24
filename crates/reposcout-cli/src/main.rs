@@ -51,6 +51,31 @@ enum Commands {
         #[arg(short = 's', long, default_value = "stars")]
         sort: String,
     },
+    /// Search for code within repositories
+    Code {
+        /// Code search query (e.g., "function auth", "class:User")
+        query: String,
+
+        /// Number of results to show
+        #[arg(short = 'n', long, default_value = "20")]
+        limit: usize,
+
+        /// Filter by programming language (e.g., rust, python, go)
+        #[arg(short = 'l', long)]
+        language: Option<String>,
+
+        /// Filter by repository (e.g., "owner/repo")
+        #[arg(short = 'r', long)]
+        repo: Option<String>,
+
+        /// Search only in specific path (e.g., "src/")
+        #[arg(short = 'p', long)]
+        path: Option<String>,
+
+        /// File extension filter (e.g., "rs", "py")
+        #[arg(short = 'e', long)]
+        extension: Option<String>,
+    },
     /// Show repository details
     Show {
         /// Repository name (owner/repo)
@@ -148,6 +173,26 @@ async fn main() -> anyhow::Result<()> {
                 max_stars,
                 pushed,
                 &sort,
+                cli.github_token,
+                cli.gitlab_token,
+            )
+            .await?;
+        }
+        Some(Commands::Code {
+            query,
+            limit,
+            language,
+            repo,
+            path,
+            extension,
+        }) => {
+            search_code(
+                &query,
+                limit,
+                language,
+                repo,
+                path,
+                extension,
                 cli.github_token,
                 cli.gitlab_token,
             )
@@ -520,6 +565,170 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
         })
     }, github_client, gitlab_client, cache)
     .await
+}
+
+async fn search_code(
+    query: &str,
+    limit: usize,
+    language: Option<String>,
+    repo: Option<String>,
+    path: Option<String>,
+    extension: Option<String>,
+    github_token: Option<String>,
+    gitlab_token: Option<String>,
+) -> anyhow::Result<()> {
+    use reposcout_api::{GitHubClient, GitLabClient};
+    use reposcout_core::models::{CodeMatch, CodeSearchResult, Platform};
+
+    // Build enhanced query with filters
+    let mut search_query = query.to_string();
+
+    if let Some(lang) = language {
+        search_query.push_str(&format!(" language:{}", lang));
+    }
+
+    if let Some(repository) = repo {
+        search_query.push_str(&format!(" repo:{}", repository));
+    }
+
+    if let Some(path_filter) = path {
+        search_query.push_str(&format!(" path:{}", path_filter));
+    }
+
+    if let Some(ext) = extension {
+        search_query.push_str(&format!(" extension:{}", ext));
+    }
+
+    tracing::info!("Searching code for: {}", search_query);
+
+    let mut all_results: Vec<CodeSearchResult> = Vec::new();
+
+    // Search GitHub
+    if let Some(ref token) = github_token {
+        let github_client = GitHubClient::new(Some(token.clone()));
+        match github_client.search_code(&search_query, limit as u32).await {
+            Ok(items) => {
+                for item in items {
+                    // Convert GitHub results to our unified format
+                    let matches: Vec<CodeMatch> = item
+                        .text_matches
+                        .iter()
+                        .map(|tm| {
+                            // GitHub doesn't provide line numbers in the API response
+                            CodeMatch {
+                                content: tm.fragment.clone(),
+                                line_number: 1,
+                                context_before: vec![],
+                                context_after: vec![],
+                            }
+                        })
+                        .collect();
+
+                    // If no text matches, create a basic match
+                    let matches = if matches.is_empty() {
+                        vec![CodeMatch {
+                            content: format!("Match found in {}", item.path),
+                            line_number: 1,
+                            context_before: vec![],
+                            context_after: vec![],
+                        }]
+                    } else {
+                        matches
+                    };
+
+                    all_results.push(CodeSearchResult {
+                        platform: Platform::GitHub,
+                        repository: item.repository.full_name.clone(),
+                        file_path: item.path.clone(),
+                        language: item.repository.language.clone(),
+                        file_url: item.html_url.clone(),
+                        repository_url: item.repository.html_url.clone(),
+                        matches,
+                        repository_stars: item.repository.stargazers_count,
+                    });
+                }
+                tracing::info!("Found {} results from GitHub", all_results.len());
+            }
+            Err(e) => {
+                tracing::warn!("GitHub code search failed: {}", e);
+            }
+        }
+    } else {
+        println!("⚠️  GitHub token not provided. Set GITHUB_TOKEN or use --github-token");
+        println!("   Code search requires authentication on GitHub.\n");
+    }
+
+    // Search GitLab
+    if let Some(ref token) = gitlab_token {
+        let gitlab_client = GitLabClient::new(Some(token.clone()));
+        match gitlab_client.search_code(query, limit as u32).await {
+            Ok(items) => {
+                // We need to fetch project details for each result
+                // For now, create basic results
+                for item in items {
+                    let matches = vec![CodeMatch {
+                        content: item.data.clone(),
+                        line_number: item.startline,
+                        context_before: vec![],
+                        context_after: vec![],
+                    }];
+
+                    all_results.push(CodeSearchResult {
+                        platform: Platform::GitLab,
+                        repository: format!("project-{}", item.project_id),
+                        file_path: item.path.clone(),
+                        language: None,
+                        file_url: format!("https://gitlab.com/projects/{}", item.project_id),
+                        repository_url: format!("https://gitlab.com/projects/{}", item.project_id),
+                        matches,
+                        repository_stars: 0,
+                    });
+                }
+                tracing::info!("Found {} total results (including GitLab)", all_results.len());
+            }
+            Err(e) => {
+                tracing::warn!("GitLab code search failed: {}", e);
+            }
+        }
+    }
+
+    // Display results
+    if all_results.is_empty() {
+        println!("No code matches found for '{}'", query);
+        return Ok(());
+    }
+
+    // Sort by repository stars
+    all_results.sort_by(|a, b| b.repository_stars.cmp(&a.repository_stars));
+
+    println!("\n🔍 Found {} code matches:\n", all_results.len());
+
+    for (i, result) in all_results.iter().take(limit).enumerate() {
+        println!(
+            "{}. {} ({})",
+            i + 1,
+            result.file_path,
+            result.repository
+        );
+        println!("   Platform: {} | ⭐ {}", result.platform, result.repository_stars);
+        if let Some(lang) = &result.language {
+            println!("   Language: {}", lang);
+        }
+
+        // Show first match snippet
+        if let Some(first_match) = result.matches.first() {
+            let snippet = if first_match.content.len() > 150 {
+                format!("{}...", &first_match.content[..150])
+            } else {
+                first_match.content.clone()
+            };
+            println!("   Preview: {}", snippet.replace('\n', " "));
+        }
+
+        println!("   {}\n", result.file_url);
+    }
+
+    Ok(())
 }
 
 fn get_cache_path() -> anyhow::Result<PathBuf> {

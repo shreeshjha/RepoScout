@@ -79,3 +79,36 @@ impl Default for SearchQuery {
         }
     }
 }
+
+/// Code search result - represents a match in repository code
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSearchResult {
+    /// Platform where the code was found
+    pub platform: Platform,
+    /// Repository name (owner/repo)
+    pub repository: String,
+    /// File path within the repository
+    pub file_path: String,
+    /// Programming language of the file
+    pub language: Option<String>,
+    /// URL to view the file
+    pub file_url: String,
+    /// URL to the repository
+    pub repository_url: String,
+    /// Code snippets showing matches with context
+    pub matches: Vec<CodeMatch>,
+    /// Repository stars (for sorting)
+    pub repository_stars: u32,
+}
+
+/// A code match with line numbers and context
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeMatch {
+    /// The matched line(s) of code
+    pub content: String,
+    /// Line number where the match starts
+    pub line_number: usize,
+    /// Optional: surrounding context lines
+    pub context_before: Vec<String>,
+    pub context_after: Vec<String>,
+}

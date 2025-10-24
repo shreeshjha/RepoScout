@@ -219,6 +219,62 @@ impl GitLabClient {
         self.get_file_content(path, "requirements.txt").await
     }
 
+    /// Search for code across GitLab projects
+    ///
+    /// Uses the GitLab Search API with scope=blobs
+    /// Requires authentication for most searches
+    pub async fn search_code(&self, query: &str, per_page: u32) -> Result<Vec<GitLabCodeSearchItem>> {
+        let url = format!("{}/search", self.base_url);
+        let token = self.token.clone();
+
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client.get(&url).query(&[
+                ("scope", "blobs"),
+                ("search", query),
+                ("per_page", &per_page.to_string()),
+            ]);
+
+            if let Some(ref token) = token {
+                request = request.header("PRIVATE-TOKEN", token);
+            }
+
+            let response = request.send().await?;
+
+            if response.status() == 404 {
+                return Err(GitLabError::NotFound(query.to_string()));
+            }
+
+            if response.status() == 401 {
+                return Err(GitLabError::AuthRequired);
+            }
+
+            if response.status() == 429 {
+                return Err(GitLabError::RateLimitExceeded);
+            }
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+
+                if is_retryable_status(status) {
+                    return Err(GitLabError::RequestFailed(format!(
+                        "Status {}: {}",
+                        status, body
+                    )));
+                }
+
+                return Err(GitLabError::RequestFailed(format!(
+                    "Status {}: {}",
+                    status, body
+                )));
+            }
+
+            let results: Vec<GitLabCodeSearchItem> = response.json().await?;
+            Ok(results)
+        })
+        .await
+    }
+
     /// Get a specific project by path (e.g., "gitlab-org/gitlab")
     pub async fn get_project(&self, path: &str) -> Result<GitLabProject> {
         // GitLab uses URL-encoded paths
@@ -292,6 +348,19 @@ pub struct GitLabNamespace {
     pub path: String,
     pub kind: String,
     pub full_path: String,
+}
+
+/// GitLab code search result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitLabCodeSearchItem {
+    pub basename: String,
+    pub data: String,
+    pub path: String,
+    pub filename: String,
+    pub id: Option<u64>,
+    pub ref_: Option<String>,
+    pub startline: usize,
+    pub project_id: u64,
 }
 
 #[cfg(test)]
