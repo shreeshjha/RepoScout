@@ -144,16 +144,21 @@ enum BookmarkAction {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging - helps when things go sideways
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "reposcout=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
     let cli = Cli::parse();
+
+    // Only initialize tracing for non-TUI commands to prevent log interference
+    let is_tui_mode = matches!(cli.command, Some(Commands::Tui));
+
+    if !is_tui_mode {
+        // Initialize logging - helps when things go sideways
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "reposcout=info".into()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    }
 
     match cli.command {
         Some(Commands::Search {
