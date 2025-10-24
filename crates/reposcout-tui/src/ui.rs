@@ -178,6 +178,28 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
+    // Show loading message if loading
+    if app.loading {
+        let loading_text = vec![
+            Line::from(""),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  🔄 Searching...", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Please wait while we fetch results", Style::default().fg(Color::DarkGray)),
+            ]),
+        ];
+
+        let paragraph = Paragraph::new(loading_text)
+            .block(Block::default().borders(Borders::ALL).title(" Results (Loading...) "))
+            .alignment(ratatui::layout::Alignment::Center);
+
+        frame.render_widget(paragraph, area);
+        return;
+    }
+
     let items: Vec<ListItem> = app
         .results
         .iter()
@@ -1087,6 +1109,28 @@ fn render_fuzzy_search_overlay(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
+    // Show loading message if loading
+    if app.loading {
+        let loading_text = vec![
+            Line::from(""),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  🔄 Searching code...", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Please wait while we search", Style::default().fg(Color::DarkGray)),
+            ]),
+        ];
+
+        let paragraph = Paragraph::new(loading_text)
+            .block(Block::default().borders(Borders::ALL).title(" Code Results (Loading...) "))
+            .alignment(ratatui::layout::Alignment::Center);
+
+        frame.render_widget(paragraph, area);
+        return;
+    }
+
     let items: Vec<ListItem> = app
         .code_results
         .iter()

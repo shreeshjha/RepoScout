@@ -49,6 +49,8 @@ where
                                 app.enter_normal_mode();
                                 // Clear terminal before search
                                 terminal.clear()?;
+                                // Immediately draw loading state
+                                terminal.draw(|f| crate::ui::render(f, &mut app))?;
 
                                 match app.search_mode {
                                     SearchMode::Repository => {
