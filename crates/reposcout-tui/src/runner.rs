@@ -1,5 +1,5 @@
 // TUI event loop and terminal management
-use crate::{App, InputMode};
+use crate::{App, InputMode, SearchMode};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
@@ -47,15 +47,77 @@ where
                                 app.loading = true;
                                 app.enter_normal_mode();
 
-                                // Perform search with filters applied
-                                let query = app.get_search_query();
-                                match on_search(&query).await {
-                                    Ok(results) => {
-                                        app.set_results(results);
-                                        app.loading = false;
+                                match app.search_mode {
+                                    SearchMode::Repository => {
+                                        // Perform repository search with filters applied
+                                        let query = app.get_search_query();
+                                        match on_search(&query).await {
+                                            Ok(results) => {
+                                                app.set_results(results);
+                                                app.loading = false;
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                app.loading = false;
+                                            }
+                                        }
                                     }
-                                    Err(e) => {
-                                        app.error_message = Some(format!("Search failed: {}", e));
+                                    SearchMode::Code => {
+                                        // Perform code search
+                                        let query = app.get_code_search_query();
+
+                                        // Search GitHub and GitLab for code
+                                        let mut all_results = Vec::new();
+
+                                        // Search GitHub
+                                        match github_client.search_code(&query, 30).await {
+                                            Ok(items) => {
+                                                for item in items {
+                                                    use reposcout_core::models::{CodeMatch, CodeSearchResult, Platform};
+
+                                                    let matches: Vec<CodeMatch> = item
+                                                        .text_matches
+                                                        .iter()
+                                                        .map(|tm| CodeMatch {
+                                                            content: tm.fragment.clone(),
+                                                            line_number: 1,
+                                                            context_before: vec![],
+                                                            context_after: vec![],
+                                                        })
+                                                        .collect();
+
+                                                    let matches = if matches.is_empty() {
+                                                        vec![CodeMatch {
+                                                            content: format!("Match found in {}", item.path),
+                                                            line_number: 1,
+                                                            context_before: vec![],
+                                                            context_after: vec![],
+                                                        }]
+                                                    } else {
+                                                        matches
+                                                    };
+
+                                                    all_results.push(CodeSearchResult {
+                                                        platform: Platform::GitHub,
+                                                        repository: item.repository.full_name.clone(),
+                                                        file_path: item.path.clone(),
+                                                        language: item.repository.language.clone(),
+                                                        file_url: item.html_url.clone(),
+                                                        repository_url: item.repository.html_url.clone(),
+                                                        matches,
+                                                        repository_stars: item.repository.stargazers_count,
+                                                    });
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("GitHub code search failed: {}", e);
+                                            }
+                                        }
+
+                                        // Sort by stars
+                                        all_results.sort_by(|a, b| b.repository_stars.cmp(&a.repository_stars));
+
+                                        app.set_code_results(all_results);
                                         app.loading = false;
                                     }
                                 }
@@ -127,6 +189,11 @@ where
                     InputMode::Normal => match key.code {
                         KeyCode::Char('q') => {
                             break;
+                        }
+                        KeyCode::Char('M') => {
+                            // Toggle between repository and code search mode
+                            app.toggle_search_mode();
+                            app.error_message = None;
                         }
                         KeyCode::Char('/') => {
                             app.enter_search_mode();
@@ -370,28 +437,67 @@ where
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
                             use crate::PreviewMode;
-                            // If in README preview mode, scroll instead of navigating
-                            if app.preview_mode == PreviewMode::Readme {
-                                app.scroll_readme_down();
-                            } else {
-                                app.next_result();
+                            match app.search_mode {
+                                SearchMode::Code => {
+                                    // Scroll code preview or navigate results
+                                    if key.code == KeyCode::Down {
+                                        app.next_code_result();
+                                        app.reset_code_scroll();
+                                    } else {
+                                        app.scroll_code_down();
+                                    }
+                                }
+                                SearchMode::Repository => {
+                                    // If in README preview mode, scroll instead of navigating
+                                    if app.preview_mode == PreviewMode::Readme {
+                                        app.scroll_readme_down();
+                                    } else {
+                                        app.next_result();
+                                    }
+                                }
                             }
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
                             use crate::PreviewMode;
-                            // If in README preview mode, scroll instead of navigating
-                            if app.preview_mode == PreviewMode::Readme {
-                                app.scroll_readme_up();
-                            } else {
-                                app.previous_result();
+                            match app.search_mode {
+                                SearchMode::Code => {
+                                    // Scroll code preview or navigate results
+                                    if key.code == KeyCode::Up {
+                                        app.previous_code_result();
+                                        app.reset_code_scroll();
+                                    } else {
+                                        app.scroll_code_up();
+                                    }
+                                }
+                                SearchMode::Repository => {
+                                    // If in README preview mode, scroll instead of navigating
+                                    if app.preview_mode == PreviewMode::Readme {
+                                        app.scroll_readme_up();
+                                    } else {
+                                        app.previous_result();
+                                    }
+                                }
                             }
                         }
                         KeyCode::Enter => {
-                            if let Some(repo) = app.selected_repository() {
-                                // Open in browser
-                                let url = repo.url.clone();
-                                if let Err(e) = open::that(&url) {
-                                    app.error_message = Some(format!("Failed to open browser: {}", e));
+                            match app.search_mode {
+                                SearchMode::Code => {
+                                    if let Some(result) = app.selected_code_result() {
+                                        // Open file URL in browser
+                                        let url = result.file_url.clone();
+                                        if let Err(e) = open::that(&url) {
+                                            app.error_message = Some(format!("Failed to open browser: {}", e));
+                                        }
+                                    }
+                                }
+                                SearchMode::Repository => {
+                                    if let Some(repo) = app.selected_repository() {
+                                        // Open in browser
+                                        let url = repo.url.clone();
+                                        if let Err(e) = open::that(&url) {
+                                            app.error_message = Some(format!("Failed to open browser: {}", e));
+                                        }
+                                    }
                                 }
                             }
                         }

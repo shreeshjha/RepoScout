@@ -1,5 +1,5 @@
 // UI rendering logic
-use crate::{App, InputMode};
+use crate::{App, InputMode, SearchMode};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -8,6 +8,10 @@ use ratatui::{
     Frame,
 };
 use chrono::Datelike;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
@@ -53,11 +57,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ])
         .split(content_area);
 
-    // Render results list (needs mutable app for stateful widget)
-    render_results_list(frame, app, content_chunks[0]);
-
-    // Render preview pane
-    render_preview(frame, app, content_chunks[1]);
+    // Render based on search mode
+    match app.search_mode {
+        SearchMode::Repository => {
+            // Render results list (needs mutable app for stateful widget)
+            render_results_list(frame, app, content_chunks[0]);
+            // Render preview pane
+            render_preview(frame, app, content_chunks[1]);
+        }
+        SearchMode::Code => {
+            // Render code search results
+            render_code_results_list(frame, app, content_chunks[0]);
+            // Render code preview with syntax highlighting
+            render_code_preview(frame, app, content_chunks[1]);
+        }
+    }
 
     // Render fuzzy search overlay if active
     if app.input_mode == InputMode::FuzzySearch {
@@ -92,10 +106,20 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         .style(Style::default());
     frame.render_widget(logo_widget, header_chunks[0]);
 
-    // Center: Platform status
+    // Center: Search mode and platform status
+    let mode_text = match app.search_mode {
+        SearchMode::Repository => "Repository Search",
+        SearchMode::Code => "Code Search",
+    };
+    let mode_color = match app.search_mode {
+        SearchMode::Repository => Color::Cyan,
+        SearchMode::Code => Color::Green,
+    };
+
     let platforms = vec![
         Line::from(vec![
-            Span::raw("Platforms: "),
+            Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
+            Span::raw(" | "),
             Span::styled(" GitHub ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::raw(" "),
             Span::styled(" GitLab ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
@@ -1005,10 +1029,17 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             }
             InputMode::Normal => {
                 use crate::PreviewMode;
-                if app.preview_mode == PreviewMode::Readme {
-                    Span::styled("README | j/k: scroll | TAB: next tab | q: quit", Style::default().fg(Color::Cyan))
-                } else {
-                    Span::raw("j/k: navigate | /: search | f: fuzzy filter | F: filters | TAB: tabs | b: bookmark | B: view bookmarks | ENTER: open | q: quit")
+                match app.search_mode {
+                    SearchMode::Code => {
+                        Span::raw("j/k: navigate | /: search | M: switch mode | TAB: scroll | ENTER: open | q: quit")
+                    }
+                    SearchMode::Repository => {
+                        if app.preview_mode == PreviewMode::Readme {
+                            Span::styled("README | j/k: scroll | TAB: next tab | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
+                        } else {
+                            Span::raw("j/k: navigate | /: search | f: fuzzy | F: filters | M: switch mode | TAB: tabs | b: bookmark | B: view | ENTER: open | q: quit")
+                        }
+                    }
                 }
             }
         }
@@ -1053,4 +1084,224 @@ fn render_fuzzy_search_overlay(frame: &mut Frame, app: &App, area: Rect) {
         );
 
     frame.render_widget(fuzzy_widget, overlay_area);
+}
+
+fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
+    let items: Vec<ListItem> = app
+        .code_results
+        .iter()
+        .enumerate()
+        .map(|(i, result)| {
+            let is_selected = i == app.code_selected_index;
+
+            // Platform color
+            let platform_color = match result.platform {
+                reposcout_core::models::Platform::GitHub => Color::Yellow,
+                reposcout_core::models::Platform::GitLab => Color::Magenta,
+                reposcout_core::models::Platform::Bitbucket => Color::Rgb(33, 136, 255),
+            };
+
+            // Line 1: File path (highlighted if selected)
+            let name_style = if is_selected {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            };
+
+            let line1 = Line::from(vec![
+                Span::styled("📄 ", Style::default().fg(Color::Blue)),
+                Span::styled(&result.file_path, name_style),
+            ]);
+
+            // Line 2: Repository + stars
+            let line2 = Line::from(vec![
+                Span::styled(
+                    format!("  {} ", result.platform),
+                    Style::default().fg(platform_color),
+                ),
+                Span::styled(&result.repository, Style::default().fg(Color::Gray)),
+                Span::raw(" "),
+                Span::styled(
+                    format!("⭐{}", format_number(result.repository_stars)),
+                    Style::default().fg(Color::Rgb(255, 215, 0)),
+                ),
+            ]);
+
+            // Line 3: Language + match count
+            let lang_display = result.language.as_deref().unwrap_or("Unknown");
+            let match_count = result.matches.len();
+            let line3 = Line::from(vec![
+                Span::styled(
+                    format!("  {} ", lang_display),
+                    Style::default().fg(Color::Green),
+                ),
+                Span::styled(
+                    format!("({} match{})", match_count, if match_count == 1 { "" } else { "es" }),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]);
+
+            ListItem::new(vec![line1, line2, line3])
+                .style(if is_selected {
+                    Style::default().bg(Color::Rgb(40, 40, 60))
+                } else {
+                    Style::default()
+                })
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" Code Results ({}) ", app.code_results.len()))
+                .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        )
+        .highlight_style(
+            Style::default()
+                .bg(Color::Rgb(60, 60, 80))
+                .add_modifier(Modifier::BOLD),
+        );
+
+    frame.render_widget(list, area);
+}
+
+fn render_code_preview(frame: &mut Frame, app: &App, area: Rect) {
+    if let Some(result) = app.selected_code_result() {
+        // Get all matches and create preview
+        let mut preview_lines: Vec<Line> = vec![];
+
+        // Title: file path
+        preview_lines.push(Line::from(vec![
+            Span::styled("File: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(&result.file_path, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]));
+        preview_lines.push(Line::from(""));
+
+        // Repository info
+        preview_lines.push(Line::from(vec![
+            Span::styled("Repo: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(&result.repository, Style::default().fg(Color::White)),
+            Span::raw(" "),
+            Span::styled(
+                format!("⭐{}", format_number(result.repository_stars)),
+                Style::default().fg(Color::Rgb(255, 215, 0)),
+            ),
+        ]));
+        preview_lines.push(Line::from(""));
+
+        // Language
+        if let Some(lang) = &result.language {
+            preview_lines.push(Line::from(vec![
+                Span::styled("Language: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(lang, Style::default().fg(Color::Green)),
+            ]));
+            preview_lines.push(Line::from(""));
+        }
+
+        preview_lines.push(Line::from(vec![
+            Span::styled("─".repeat(50), Style::default().fg(Color::DarkGray)),
+        ]));
+        preview_lines.push(Line::from(""));
+
+        // Show matches with syntax highlighting
+        for (idx, code_match) in result.matches.iter().enumerate() {
+            if idx > 0 {
+                preview_lines.push(Line::from(""));
+                preview_lines.push(Line::from(vec![
+                    Span::styled("─".repeat(30), Style::default().fg(Color::DarkGray)),
+                ]));
+                preview_lines.push(Line::from(""));
+            }
+
+            // Match header
+            preview_lines.push(Line::from(vec![
+                Span::styled(
+                    format!("Match {} at line {}", idx + 1, code_match.line_number),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+            preview_lines.push(Line::from(""));
+
+            // Syntax-highlighted code
+            let highlighted = highlight_code(&code_match.content, result.language.as_deref());
+            preview_lines.extend(highlighted);
+        }
+
+        // Apply scroll offset
+        let start_line = app.code_scroll as usize;
+        let visible_lines: Vec<Line> = preview_lines
+            .into_iter()
+            .skip(start_line)
+            .collect();
+
+        let paragraph = Paragraph::new(visible_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Code Preview ")
+                    .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+            )
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(paragraph, area);
+    } else {
+        // No result selected
+        let text = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("No code result selected", Style::default().fg(Color::DarkGray)),
+            ]),
+        ];
+
+        let paragraph = Paragraph::new(text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Code Preview ")
+                    .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+            )
+            .alignment(ratatui::layout::Alignment::Center);
+
+        frame.render_widget(paragraph, area);
+    }
+}
+
+/// Syntax highlight code using syntect
+fn highlight_code(code: &str, language: Option<&str>) -> Vec<Line<'static>> {
+    // Load syntax definitions and themes
+    let ps = SyntaxSet::load_defaults_newlines();
+    let ts = ThemeSet::load_defaults();
+
+    // Use a dark theme
+    let theme = &ts.themes["base16-ocean.dark"];
+
+    // Detect syntax
+    let syntax = if let Some(lang) = language {
+        ps.find_syntax_by_name(lang)
+            .or_else(|| ps.find_syntax_by_extension(lang))
+            .unwrap_or_else(|| ps.find_syntax_plain_text())
+    } else {
+        ps.find_syntax_plain_text()
+    };
+
+    let mut highlighter = HighlightLines::new(syntax, theme);
+    let mut result_lines = Vec::new();
+
+    for line in LinesWithEndings::from(code) {
+        let ranges: Vec<(SyntectStyle, &str)> = highlighter
+            .highlight_line(line, &ps)
+            .unwrap_or_default();
+
+        let mut spans = Vec::new();
+        for (style, text) in ranges {
+            // Convert syntect style to ratatui style
+            let fg_color = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
+            spans.push(Span::styled(text.to_string(), Style::default().fg(fg_color)));
+        }
+
+        result_lines.push(Line::from(spans));
+    }
+
+    result_lines
 }

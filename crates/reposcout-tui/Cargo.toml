@@ -21,4 +21,5 @@ tracing = { workspace = true }
 termimad = { workspace = true }
 chrono = { workspace = true }
 fuzzy-matcher = { workspace = true }
+syntect = { workspace = true }
 open = "5.3"

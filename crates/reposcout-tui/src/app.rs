@@ -1,7 +1,13 @@
 // TUI application state and event handling
-use reposcout_core::models::Repository;
+use reposcout_core::models::{Repository, CodeSearchResult};
 use reposcout_deps::DependencyInfo;
 use ratatui::widgets::ListState;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchMode {
+    Repository,  // Searching for repositories (default)
+    Code,        // Searching for code
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMode {
@@ -77,9 +83,61 @@ impl SearchFilters {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CodeSearchFilters {
+    pub language: Option<String>,
+    pub repo: Option<String>,
+    pub path: Option<String>,
+    pub extension: Option<String>,
+}
+
+impl Default for CodeSearchFilters {
+    fn default() -> Self {
+        Self {
+            language: None,
+            repo: None,
+            path: None,
+            extension: None,
+        }
+    }
+}
+
+impl CodeSearchFilters {
+    pub fn build_query(&self, base_query: &str) -> String {
+        let mut parts = vec![base_query.to_string()];
+
+        if let Some(lang) = &self.language {
+            if !lang.is_empty() {
+                parts.push(format!("language:{}", lang));
+            }
+        }
+
+        if let Some(repository) = &self.repo {
+            if !repository.is_empty() {
+                parts.push(format!("repo:{}", repository));
+            }
+        }
+
+        if let Some(path_filter) = &self.path {
+            if !path_filter.is_empty() {
+                parts.push(format!("path:{}", path_filter));
+            }
+        }
+
+        if let Some(ext) = &self.extension {
+            if !ext.is_empty() {
+                parts.push(format!("extension:{}", ext));
+            }
+        }
+
+        parts.join(" ")
+    }
+}
+
 pub struct App {
     pub should_quit: bool,
     pub input_mode: InputMode,
+    pub search_mode: SearchMode,
     pub search_input: String,
     pub results: Vec<Repository>,
     pub selected_index: usize,
@@ -109,6 +167,13 @@ pub struct App {
     // Dependency analysis state
     pub dependencies_cache: std::collections::HashMap<String, Option<DependencyInfo>>,
     pub dependencies_loading: bool,
+    // Code search state
+    pub code_results: Vec<CodeSearchResult>,
+    pub code_filters: CodeSearchFilters,
+    pub code_selected_index: usize,
+    pub code_scroll: u16,
+    // Full file content cache for code preview
+    pub code_content_cache: std::collections::HashMap<String, String>,
 }
 
 impl App {
@@ -119,6 +184,7 @@ impl App {
         Self {
             should_quit: false,
             input_mode: InputMode::Searching,
+            search_mode: SearchMode::Repository,
             search_input: String::new(),
             results: Vec::new(),
             selected_index: 0,
@@ -142,6 +208,11 @@ impl App {
             fuzzy_match_count: 0,
             dependencies_cache: std::collections::HashMap::new(),
             dependencies_loading: false,
+            code_results: Vec::new(),
+            code_filters: CodeSearchFilters::default(),
+            code_selected_index: 0,
+            code_scroll: 0,
+            code_content_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -487,6 +558,64 @@ impl App {
     /// Stop dependency loading
     pub fn stop_dependencies_loading(&mut self) {
         self.dependencies_loading = false;
+    }
+
+    /// Toggle between repository and code search mode
+    pub fn toggle_search_mode(&mut self) {
+        self.search_mode = match self.search_mode {
+            SearchMode::Repository => SearchMode::Code,
+            SearchMode::Code => SearchMode::Repository,
+        };
+        // Clear results when switching modes
+        self.code_results.clear();
+        self.results.clear();
+        self.code_selected_index = 0;
+        self.selected_index = 0;
+    }
+
+    /// Get the currently selected code search result
+    pub fn selected_code_result(&self) -> Option<&CodeSearchResult> {
+        self.code_results.get(self.code_selected_index)
+    }
+
+    /// Navigate to next code search result
+    pub fn next_code_result(&mut self) {
+        if !self.code_results.is_empty() {
+            self.code_selected_index = (self.code_selected_index + 1).min(self.code_results.len() - 1);
+        }
+    }
+
+    /// Navigate to previous code search result
+    pub fn previous_code_result(&mut self) {
+        if self.code_selected_index > 0 {
+            self.code_selected_index -= 1;
+        }
+    }
+
+    /// Set code search results
+    pub fn set_code_results(&mut self, results: Vec<CodeSearchResult>) {
+        self.code_results = results;
+        self.code_selected_index = 0;
+    }
+
+    /// Scroll code preview down
+    pub fn scroll_code_down(&mut self) {
+        self.code_scroll = self.code_scroll.saturating_add(1);
+    }
+
+    /// Scroll code preview up
+    pub fn scroll_code_up(&mut self) {
+        self.code_scroll = self.code_scroll.saturating_sub(1);
+    }
+
+    /// Reset code scroll position
+    pub fn reset_code_scroll(&mut self) {
+        self.code_scroll = 0;
+    }
+
+    /// Get code search query with filters
+    pub fn get_code_search_query(&self) -> String {
+        self.code_filters.build_query(&self.search_input)
     }
 }
 

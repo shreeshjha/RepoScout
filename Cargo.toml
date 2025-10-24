@@ -48,6 +48,8 @@ toml = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 # Fuzzy matching for search
 fuzzy-matcher = "0.3"
+# Syntax highlighting for code display
+syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
 # Testing utilities
 mockall = "0.13"
 
