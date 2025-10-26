@@ -1,6 +1,6 @@
 use clap::Parser;
 use reposcout_cache::{BookmarkEntry, CacheManager};
-use reposcout_core::{providers::{GitHubProvider, GitLabProvider}, CachedSearchEngine};
+use reposcout_core::{providers::{BitbucketProvider, GitHubProvider, GitLabProvider}, CachedSearchEngine};
 use std::path::PathBuf;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -18,6 +18,14 @@ struct Cli {
     /// GitLab personal access token (or set GITLAB_TOKEN env var)
     #[arg(long, env)]
     gitlab_token: Option<String>,
+
+    /// Bitbucket username (or set BITBUCKET_USERNAME env var)
+    #[arg(long, env)]
+    bitbucket_username: Option<String>,
+
+    /// Bitbucket app password (or set BITBUCKET_APP_PASSWORD env var)
+    #[arg(long, env)]
+    bitbucket_app_password: Option<String>,
 }
 
 #[derive(clap::Subcommand)]
@@ -180,6 +188,8 @@ async fn main() -> anyhow::Result<()> {
                 &sort,
                 cli.github_token,
                 cli.gitlab_token,
+                cli.bitbucket_username,
+                cli.bitbucket_app_password,
             )
             .await?;
         }
@@ -200,20 +210,22 @@ async fn main() -> anyhow::Result<()> {
                 extension,
                 cli.github_token,
                 cli.gitlab_token,
+                cli.bitbucket_username,
+                cli.bitbucket_app_password,
             )
             .await?;
         }
         Some(Commands::Show { name }) => {
-            show_repository(&name, cli.github_token, cli.gitlab_token).await?;
+            show_repository(&name, cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
         }
         Some(Commands::Cache { action }) => {
             handle_cache_command(action).await?;
         }
         Some(Commands::Bookmark { action }) => {
-            handle_bookmark_command(action, cli.github_token, cli.gitlab_token).await?;
+            handle_bookmark_command(action, cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
         }
         Some(Commands::Tui) => {
-            run_tui_mode(cli.github_token, cli.gitlab_token).await?;
+            run_tui_mode(cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
         }
         None => {
             println!("No command specified. Try --help");
@@ -233,6 +245,8 @@ async fn search_repositories(
     sort: &str,
     github_token: Option<String>,
     gitlab_token: Option<String>,
+    bitbucket_username: Option<String>,
+    bitbucket_app_password: Option<String>,
 ) -> anyhow::Result<()> {
     // Build GitHub search query with filters
     let search_query = build_github_query(query, language, min_stars, max_stars, pushed);
@@ -243,9 +257,10 @@ async fn search_repositories(
     let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
 
     let mut engine = CachedSearchEngine::with_cache(cache);
-    // Add both providers - search across both platforms
+    // Add all providers - search across all platforms
     engine.add_provider(Box::new(GitHubProvider::new(github_token)));
     engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
+    engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username, bitbucket_app_password)));
 
     let mut results = engine.search(&search_query).await?;
 
@@ -275,7 +290,7 @@ async fn search_repositories(
     Ok(())
 }
 
-async fn show_repository(full_name: &str, github_token: Option<String>, gitlab_token: Option<String>) -> anyhow::Result<()> {
+async fn show_repository(full_name: &str, github_token: Option<String>, gitlab_token: Option<String>, bitbucket_username: Option<String>, bitbucket_app_password: Option<String>) -> anyhow::Result<()> {
     // Parse owner/repo format
     let parts: Vec<&str> = full_name.split('/').collect();
     if parts.len() != 2 {
@@ -290,9 +305,10 @@ async fn show_repository(full_name: &str, github_token: Option<String>, gitlab_t
     let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
 
     let mut engine = CachedSearchEngine::with_cache(cache);
-    // Add both providers - will try both platforms
+    // Add all providers - will try all platforms
     engine.add_provider(Box::new(GitHubProvider::new(github_token)));
     engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
+    engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username, bitbucket_app_password)));
 
     let repository = engine.get_repository(owner, repo).await?;
 
@@ -356,7 +372,7 @@ async fn handle_cache_command(action: CacheAction) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<String>, gitlab_token: Option<String>) -> anyhow::Result<()> {
+async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<String>, gitlab_token: Option<String>, bitbucket_username: Option<String>, bitbucket_app_password: Option<String>) -> anyhow::Result<()> {
     use reposcout_core::models::Repository;
 
     let cache_path = get_cache_path()?;
@@ -399,6 +415,7 @@ async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<St
             let mut engine = CachedSearchEngine::with_cache(cache_manager);
             engine.add_provider(Box::new(GitHubProvider::new(github_token)));
             engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
+            engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username, bitbucket_app_password)));
 
             let repository = engine.get_repository(owner, repo_name).await?;
 
@@ -414,11 +431,12 @@ async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<St
             println!("✅ Bookmarked: {}", repository.full_name);
         }
         BookmarkAction::Remove { name } => {
-            // Try to remove from both platforms
+            // Try to remove from all platforms
             let removed_github = cache.remove_bookmark("github", &name).is_ok();
             let removed_gitlab = cache.remove_bookmark("gitlab", &name).is_ok();
+            let removed_bitbucket = cache.remove_bookmark("bitbucket", &name).is_ok();
 
-            if removed_github || removed_gitlab {
+            if removed_github || removed_gitlab || removed_bitbucket {
                 println!("✅ Removed bookmark: {}", name);
             } else {
                 println!("❌ Bookmark not found: {}", name);
@@ -540,9 +558,9 @@ fn sort_results(results: &mut [reposcout_core::models::Repository], sort_by: &st
     }
 }
 
-async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>) -> anyhow::Result<()> {
+async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>, bitbucket_username: Option<String>, bitbucket_app_password: Option<String>) -> anyhow::Result<()> {
     use reposcout_tui::{App, run_tui};
-    use reposcout_api::{GitHubClient, GitLabClient};
+    use reposcout_api::{BitbucketClient, GitHubClient, GitLabClient};
 
     let app = App::new();
     let cache_path = get_cache_path()?;
@@ -551,6 +569,7 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
     // Create API clients for README fetching
     let github_client = GitHubClient::new(github_token.clone());
     let gitlab_client = GitLabClient::new(gitlab_token.clone());
+    let bitbucket_client = BitbucketClient::new(bitbucket_username.clone(), bitbucket_app_password.clone());
 
     // Create cache manager for bookmarks
     let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
@@ -558,17 +577,20 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
     run_tui(app, move |query| {
         let github_token_clone = github_token.clone();
         let gitlab_token_clone = gitlab_token.clone();
+        let bitbucket_username_clone = bitbucket_username.clone();
+        let bitbucket_app_password_clone = bitbucket_app_password.clone();
         let cache_path_clone = cache_path_str.clone();
 
         Box::pin(async move {
             let cache = CacheManager::new(&cache_path_clone, 24)?;
             let mut engine = CachedSearchEngine::with_cache(cache);
-            // Search both GitHub and GitLab
+            // Search across all platforms
             engine.add_provider(Box::new(GitHubProvider::new(github_token_clone)));
             engine.add_provider(Box::new(GitLabProvider::new(gitlab_token_clone)));
+            engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username_clone, bitbucket_app_password_clone)));
             engine.search(query).await.map_err(|e| e.into())
         })
-    }, github_client, gitlab_client, cache)
+    }, github_client, gitlab_client, bitbucket_client, cache)
     .await
 }
 
@@ -581,6 +603,8 @@ async fn search_code(
     extension: Option<String>,
     github_token: Option<String>,
     gitlab_token: Option<String>,
+    bitbucket_username: Option<String>,
+    bitbucket_app_password: Option<String>,
 ) -> anyhow::Result<()> {
     use reposcout_api::{GitHubClient, GitLabClient};
     use reposcout_core::models::{CodeMatch, CodeSearchResult, Platform};
@@ -695,6 +719,13 @@ async fn search_code(
                 tracing::warn!("GitLab code search failed: {}", e);
             }
         }
+    }
+
+    // Search Bitbucket
+    if bitbucket_username.is_some() && bitbucket_app_password.is_some() {
+        // Note: Bitbucket code search is limited and requires workspace/repo context
+        // For now, we'll skip it in multi-platform search
+        tracing::info!("Bitbucket code search requires workspace/repo context - skipping in multi-platform search");
     }
 
     // Display results

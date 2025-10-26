@@ -77,22 +77,30 @@ impl CachedSearchEngine {
             }
         }
 
-        // Cache miss - fetch from first provider (usually GitHub)
-        if let Some(provider) = self.providers.first() {
-            info!("Fetching {} from provider", full_name);
-            let repo = provider.get_repository(owner, name).await?;
+        // Cache miss - try all providers until one succeeds
+        info!("Fetching {} from provider", full_name);
+        let mut last_error = None;
 
-            // Cache it
-            if let Some(cache) = &self.cache {
-                if let Err(e) = cache.set(&repo.platform.to_string(), &full_name, &repo) {
-                    debug!("Failed to cache {}: {}", full_name, e);
+        for provider in &self.providers {
+            match provider.get_repository(owner, name).await {
+                Ok(repo) => {
+                    // Cache it
+                    if let Some(cache) = &self.cache {
+                        if let Err(e) = cache.set(&repo.platform.to_string(), &full_name, &repo) {
+                            debug!("Failed to cache {}: {}", full_name, e);
+                        }
+                    }
+                    return Ok(repo);
+                }
+                Err(e) => {
+                    debug!("Provider failed to fetch {}: {}", full_name, e);
+                    last_error = Some(e);
                 }
             }
-
-            Ok(repo)
-        } else {
-            Err(crate::Error::ConfigError("No search providers configured".into()))
         }
+
+        // All providers failed
+        Err(last_error.unwrap_or_else(|| crate::Error::ConfigError("No search providers configured".into())))
     }
 
     /// Search across all providers (without cache)

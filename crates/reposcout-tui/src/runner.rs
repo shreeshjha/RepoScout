@@ -7,7 +7,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
-use reposcout_api::{GitHubClient, GitLabClient};
+use reposcout_api::{BitbucketClient, GitHubClient, GitLabClient};
 use reposcout_cache::CacheManager;
 
 pub async fn run_tui<F>(
@@ -15,6 +15,7 @@ pub async fn run_tui<F>(
     mut on_search: F,
     github_client: GitHubClient,
     gitlab_client: GitLabClient,
+    bitbucket_client: BitbucketClient,
     cache: CacheManager,
 ) -> anyhow::Result<()>
 where
@@ -321,7 +322,14 @@ where
                                             reposcout_core::models::Platform::GitLab => {
                                                 gitlab_client.get_readme(&repo_name).await.map_err(|e| anyhow::anyhow!("{}", e))
                                             }
-                                            _ => Err(anyhow::anyhow!("Platform not supported")),
+                                            reposcout_core::models::Platform::Bitbucket => {
+                                                let parts: Vec<&str> = repo_name.split('/').collect();
+                                                if parts.len() == 2 {
+                                                    bitbucket_client.get_readme(parts[0], parts[1]).await.map_err(|e| anyhow::anyhow!("{}", e))
+                                                } else {
+                                                    Err(anyhow::anyhow!("Invalid repository name format"))
+                                                }
+                                            }
                                         };
 
                                         match readme_result {
@@ -392,7 +400,21 @@ where
                                                         Err(_) => Ok(None),
                                                     }
                                                 }
-                                                _ => Ok(None),
+                                                reposcout_core::models::Platform::Bitbucket => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match bitbucket_client.get_cargo_toml(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_cargo_toml(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
                                             }
                                         }
                                         Some("JavaScript") | Some("TypeScript") => {
@@ -422,7 +444,21 @@ where
                                                         Err(_) => Ok(None),
                                                     }
                                                 }
-                                                _ => Ok(None),
+                                                reposcout_core::models::Platform::Bitbucket => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match bitbucket_client.get_package_json(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_package_json(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
                                             }
                                         }
                                         Some("Python") => {
@@ -452,7 +488,21 @@ where
                                                         Err(_) => Ok(None),
                                                     }
                                                 }
-                                                _ => Ok(None),
+                                                reposcout_core::models::Platform::Bitbucket => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match bitbucket_client.get_requirements_txt(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_requirements_txt(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
                                             }
                                         }
                                         _ => Ok(None),

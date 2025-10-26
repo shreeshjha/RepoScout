@@ -50,6 +50,8 @@ chrono = { version = "0.4", features = ["serde"] }
 fuzzy-matcher = "0.3"
 # Syntax highlighting for code display
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
+# Base64 encoding for Bitbucket auth
+base64 = "0.22"
 # Testing utilities
 mockall = "0.13"
 
