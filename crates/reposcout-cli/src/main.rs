@@ -99,6 +99,11 @@ enum Commands {
         #[command(subcommand)]
         action: BookmarkAction,
     },
+    /// Search history management
+    History {
+        #[command(subcommand)]
+        action: HistoryAction,
+    },
     /// Launch interactive TUI
     Tui,
 }
@@ -147,6 +152,26 @@ enum BookmarkAction {
         input: String,
     },
     /// Clear all bookmarks
+    Clear,
+}
+
+#[derive(clap::Subcommand)]
+enum HistoryAction {
+    /// List recent search history
+    List {
+        /// Number of entries to show
+        #[arg(short = 'n', long, default_value = "20")]
+        limit: usize,
+    },
+    /// Search within history
+    Search {
+        /// Search term to filter history
+        term: String,
+        /// Number of entries to show
+        #[arg(short = 'n', long, default_value = "10")]
+        limit: usize,
+    },
+    /// Clear all search history
     Clear,
 }
 
@@ -224,6 +249,9 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Bookmark { action }) => {
             handle_bookmark_command(action, cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
         }
+        Some(Commands::History { action }) => {
+            handle_history_command(action).await?;
+        }
         Some(Commands::Tui) => {
             run_tui_mode(cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
         }
@@ -249,7 +277,7 @@ async fn search_repositories(
     bitbucket_app_password: Option<String>,
 ) -> anyhow::Result<()> {
     // Build GitHub search query with filters
-    let search_query = build_github_query(query, language, min_stars, max_stars, pushed);
+    let search_query = build_github_query(query, language.clone(), min_stars, max_stars, pushed.clone());
     tracing::info!("Searching for: {}", search_query);
 
     // Initialize cache
@@ -266,6 +294,13 @@ async fn search_repositories(
 
     // Sort results based on user preference
     sort_results(&mut results, sort);
+
+    // Record search in history (create new cache instance to avoid borrow issues)
+    let filters = build_filters_string(language.as_deref(), min_stars, max_stars, pushed.as_deref(), sort);
+    let history_cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+    if let Err(e) = history_cache.add_search_history(query, filters.as_deref(), Some(results.len() as i64)) {
+        tracing::warn!("Failed to save search history: {}", e);
+    }
 
     if results.is_empty() {
         println!("No repositories found for '{}'", query);
@@ -486,6 +521,114 @@ async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<St
     Ok(())
 }
 
+async fn handle_history_command(action: HistoryAction) -> anyhow::Result<()> {
+    let cache_path = get_cache_path()?;
+    let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+
+    match action {
+        HistoryAction::List { limit } => {
+            let history = cache.get_search_history(limit)?;
+
+            if history.is_empty() {
+                println!("No search history found. Start searching to build your history!");
+                return Ok(());
+            }
+
+            println!("\n📜 Recent Search History ({}):\n", history.len());
+
+            for (i, entry) in history.iter().enumerate() {
+                // Format timestamp as relative time
+                let timestamp = format_timestamp(entry.searched_at);
+
+                println!("{}. \"{}\"", i + 1, entry.query);
+                print!("   {}", timestamp);
+
+                if let Some(count) = entry.result_count {
+                    print!(" | {} results", count);
+                }
+
+                if let Some(filters) = &entry.filters {
+                    if !filters.is_empty() {
+                        print!(" | filters: {}", filters);
+                    }
+                }
+
+                println!("\n");
+            }
+        }
+        HistoryAction::Search { term, limit } => {
+            let history = cache.search_history(&term, limit)?;
+
+            if history.is_empty() {
+                println!("No search history matching '{}'", term);
+                return Ok(());
+            }
+
+            println!("\n🔍 Search History matching '{}' ({}):\n", term, history.len());
+
+            for (i, entry) in history.iter().enumerate() {
+                let timestamp = format_timestamp(entry.searched_at);
+
+                println!("{}. \"{}\"", i + 1, entry.query);
+                print!("   {}", timestamp);
+
+                if let Some(count) = entry.result_count {
+                    print!(" | {} results", count);
+                }
+
+                if let Some(filters) = &entry.filters {
+                    if !filters.is_empty() {
+                        print!(" | filters: {}", filters);
+                    }
+                }
+
+                println!("\n");
+            }
+        }
+        HistoryAction::Clear => {
+            let count = cache.search_history_count()?;
+            cache.clear_search_history()?;
+            println!("✅ Cleared {} search history entries", count);
+        }
+    }
+
+    Ok(())
+}
+
+/// Format Unix timestamp as relative time (e.g., "2 hours ago")
+fn format_timestamp(timestamp: i64) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let diff = now - timestamp;
+
+    if diff < 60 {
+        "just now".to_string()
+    } else if diff < 3600 {
+        let mins = diff / 60;
+        format!("{} minute{} ago", mins, if mins == 1 { "" } else { "s" })
+    } else if diff < 86400 {
+        let hours = diff / 3600;
+        format!("{} hour{} ago", hours, if hours == 1 { "" } else { "s" })
+    } else if diff < 604800 {
+        let days = diff / 86400;
+        format!("{} day{} ago", days, if days == 1 { "" } else { "s" })
+    } else if diff < 2592000 {
+        let weeks = diff / 604800;
+        format!("{} week{} ago", weeks, if weeks == 1 { "" } else { "s" })
+    } else if diff < 31536000 {
+        let months = diff / 2592000;
+        format!("{} month{} ago", months, if months == 1 { "" } else { "s" })
+    } else {
+        let years = diff / 31536000;
+        format!("{} year{} ago", years, if years == 1 { "" } else { "s" })
+    }
+}
+
 fn export_bookmarks_csv(bookmarks: &[BookmarkEntry], output: &str) -> anyhow::Result<()> {
     use std::io::Write;
 
@@ -546,6 +689,42 @@ fn build_github_query(
     }
 
     parts.join(" ")
+}
+
+/// Build a human-readable filters string for search history
+fn build_filters_string(
+    language: Option<&str>,
+    min_stars: Option<u32>,
+    max_stars: Option<u32>,
+    pushed: Option<&str>,
+    sort: &str,
+) -> Option<String> {
+    let mut filters = Vec::new();
+
+    if let Some(lang) = language {
+        filters.push(format!("lang:{}", lang));
+    }
+
+    match (min_stars, max_stars) {
+        (Some(min), Some(max)) => filters.push(format!("stars:{}..{}", min, max)),
+        (Some(min), None) => filters.push(format!("stars:≥{}", min)),
+        (None, Some(max)) => filters.push(format!("stars:≤{}", max)),
+        (None, None) => {}
+    }
+
+    if let Some(pushed_date) = pushed {
+        filters.push(format!("pushed:{}", pushed_date));
+    }
+
+    if sort != "stars" {
+        filters.push(format!("sort:{}", sort));
+    }
+
+    if filters.is_empty() {
+        None
+    } else {
+        Some(filters.join(", "))
+    }
 }
 
 /// Sort repository results based on user preference

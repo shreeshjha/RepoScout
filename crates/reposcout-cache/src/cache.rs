@@ -83,6 +83,26 @@ impl CacheManager {
             [],
         )?;
 
+        // Create search history table
+        // Tracks previous searches for quick re-run and auto-complete
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS search_history (
+                id INTEGER PRIMARY KEY,
+                query TEXT NOT NULL,
+                filters TEXT,
+                result_count INTEGER,
+                searched_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // Create index for efficient querying by timestamp
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_search_history_searched_at
+             ON search_history(searched_at DESC)",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -355,6 +375,128 @@ impl CacheManager {
             .query_row("SELECT COUNT(*) FROM bookmarks", [], |row| row.get(0))?;
         Ok(count as usize)
     }
+
+    // ===== Search History Methods =====
+
+    /// Add a search to history
+    /// Duplicate queries update the timestamp instead of creating new entries
+    pub fn add_search_history(
+        &self,
+        query: &str,
+        filters: Option<&str>,
+        result_count: Option<i64>,
+    ) -> Result<()> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        // Check if this exact query already exists
+        let existing: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM search_history WHERE query = ?1 ORDER BY searched_at DESC LIMIT 1",
+                params![query],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(id) = existing {
+            // Update existing entry with new timestamp and result count
+            self.conn.execute(
+                "UPDATE search_history SET searched_at = ?1, result_count = ?2, filters = ?3 WHERE id = ?4",
+                params![now, result_count, filters, id],
+            )?;
+        } else {
+            // Insert new entry
+            self.conn.execute(
+                "INSERT INTO search_history (query, filters, result_count, searched_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![query, filters, result_count, now],
+            )?;
+        }
+
+        // Limit history to last 100 searches
+        self.conn.execute(
+            "DELETE FROM search_history WHERE id IN (
+                SELECT id FROM search_history ORDER BY searched_at DESC LIMIT -1 OFFSET 100
+            )",
+            [],
+        )?;
+
+        Ok(())
+    }
+
+    /// Get recent search history (most recent first)
+    pub fn get_search_history(&self, limit: usize) -> Result<Vec<SearchHistoryEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, query, filters, result_count, searched_at
+             FROM search_history ORDER BY searched_at DESC LIMIT ?1",
+        )?;
+
+        let results = stmt
+            .query_map(params![limit as i64], |row| {
+                Ok(SearchHistoryEntry {
+                    id: row.get(0)?,
+                    query: row.get(1)?,
+                    filters: row.get(2)?,
+                    result_count: row.get(3)?,
+                    searched_at: row.get(4)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Search within history (for auto-complete)
+    pub fn search_history(&self, term: &str, limit: usize) -> Result<Vec<SearchHistoryEntry>> {
+        let pattern = format!("%{}%", term);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, query, filters, result_count, searched_at
+             FROM search_history WHERE query LIKE ?1
+             ORDER BY searched_at DESC LIMIT ?2",
+        )?;
+
+        let results = stmt
+            .query_map(params![pattern, limit as i64], |row| {
+                Ok(SearchHistoryEntry {
+                    id: row.get(0)?,
+                    query: row.get(1)?,
+                    filters: row.get(2)?,
+                    result_count: row.get(3)?,
+                    searched_at: row.get(4)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Delete a specific search history entry
+    pub fn delete_search_history(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM search_history WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Clear all search history
+    pub fn clear_search_history(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM search_history", [])?;
+        Ok(())
+    }
+
+    /// Get search history count
+    pub fn search_history_count(&self) -> Result<usize> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM search_history", [], |row| row.get(0))?;
+        Ok(count as usize)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -373,6 +515,15 @@ pub struct BookmarkEntry {
     pub bookmarked_at: i64,
     pub tags: Option<String>,
     pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchHistoryEntry {
+    pub id: i64,
+    pub query: String,
+    pub filters: Option<String>,
+    pub result_count: Option<i64>,
+    pub searched_at: i64,
 }
 
 #[cfg(test)]
