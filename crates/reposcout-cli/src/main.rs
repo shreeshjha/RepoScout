@@ -562,7 +562,7 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
     use reposcout_tui::{App, run_tui};
     use reposcout_api::{BitbucketClient, GitHubClient, GitLabClient};
 
-    let app = App::new();
+    let mut app = App::new();
     let cache_path = get_cache_path()?;
     let cache_path_str = cache_path.to_str().unwrap().to_string();
 
@@ -570,6 +570,11 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
     let github_client = GitHubClient::new(github_token.clone());
     let gitlab_client = GitLabClient::new(gitlab_token.clone());
     let bitbucket_client = BitbucketClient::new(bitbucket_username.clone(), bitbucket_app_password.clone());
+
+    // Set platform status based on provided credentials
+    // GitHub and GitLab are always available (public repos don't need auth)
+    let bitbucket_configured = bitbucket_username.is_some() && bitbucket_app_password.is_some();
+    app.set_platform_status(true, true, bitbucket_configured);
 
     // Create cache manager for bookmarks
     let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;

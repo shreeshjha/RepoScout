@@ -174,6 +174,15 @@ pub struct App {
     pub code_scroll: u16,
     // Full file content cache for code preview
     pub code_content_cache: std::collections::HashMap<String, String>,
+    // Platform status tracking
+    pub platform_status: PlatformStatus,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlatformStatus {
+    pub github_configured: bool,
+    pub gitlab_configured: bool,
+    pub bitbucket_configured: bool,
 }
 
 impl App {
@@ -213,7 +222,20 @@ impl App {
             code_selected_index: 0,
             code_scroll: 0,
             code_content_cache: std::collections::HashMap::new(),
+            platform_status: PlatformStatus {
+                github_configured: true,  // Always available (public repos don't need auth)
+                gitlab_configured: true,  // Always available (public repos don't need auth)
+                bitbucket_configured: false,
+            },
         }
+    }
+
+    pub fn set_platform_status(&mut self, github: bool, gitlab: bool, bitbucket: bool) {
+        self.platform_status = PlatformStatus {
+            github_configured: github,
+            gitlab_configured: gitlab,
+            bitbucket_configured: bitbucket,
+        };
     }
 
     /// Enter fuzzy search mode

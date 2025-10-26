@@ -116,15 +116,28 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         SearchMode::Code => Color::Green,
     };
 
-    let platforms = vec![
-        Line::from(vec![
-            Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-            Span::raw(" | "),
-            Span::styled(" GitHub ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" "),
-            Span::styled(" GitLab ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        ]),
+    // Build platform status indicators with full names
+    let mut platform_spans = vec![
+        Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
+        Span::raw(" | "),
     ];
+
+    // GitHub status (Green - always configured)
+    platform_spans.push(Span::styled(" GitHub ✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
+    platform_spans.push(Span::raw(" "));
+
+    // GitLab status (Magenta/Purple - always configured)
+    platform_spans.push(Span::styled(" GitLab ✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
+    platform_spans.push(Span::raw(" "));
+
+    // Bitbucket status (Blue when configured, Red with X when not)
+    if app.platform_status.bitbucket_configured {
+        platform_spans.push(Span::styled(" Bitbucket ✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+    } else {
+        platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+    }
+
+    let platforms = vec![Line::from(platform_spans)];
     let platforms_widget = Paragraph::new(platforms)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default())
@@ -1034,9 +1047,25 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
 
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let status = if let Some(error) = &app.error_message {
-        Span::styled(error, Style::default().fg(Color::Red))
+        vec![Span::styled(error, Style::default().fg(Color::Red))]
+    } else if !app.platform_status.bitbucket_configured {
+        // Show warning about missing Bitbucket credentials
+        vec![
+            Span::styled("⚠ Bitbucket credentials not available ", Style::default().fg(Color::Yellow)),
+            Span::styled("(set BITBUCKET_USERNAME and BITBUCKET_APP_PASSWORD) ", Style::default().fg(Color::DarkGray)),
+            Span::raw("| "),
+            match app.input_mode {
+                InputMode::Searching => {
+                    Span::styled("SEARCH MODE | ESC: normal | ENTER: search", Style::default().fg(Color::Cyan))
+                }
+                InputMode::Normal => {
+                    Span::raw("j/k: navigate | /: search | q: quit")
+                }
+                _ => Span::raw(""),
+            }
+        ]
     } else {
-        match app.input_mode {
+        vec![match app.input_mode {
             InputMode::Searching => {
                 Span::styled("SEARCH MODE | ESC: normal mode | ENTER: search", Style::default().fg(Color::Yellow))
             }
@@ -1064,10 +1093,10 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                     }
                 }
             }
-        }
+        }]
     };
 
-    let paragraph = Paragraph::new(Line::from(vec![status]));
+    let paragraph = Paragraph::new(Line::from(status));
     frame.render_widget(paragraph, area);
 }
 
