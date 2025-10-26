@@ -1391,16 +1391,31 @@ fn highlight_code(code: &str, language: Option<&str>) -> Vec<Line<'static>> {
 fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Center the popup (60% width, 60% height)
-    let popup_width = (area.width as f32 * 0.6) as u16;
-    let popup_height = (area.height as f32 * 0.6) as u16;
+    // Calculate popup size with minimum and maximum constraints
+    // Use 60% of screen or fixed size, whichever is smaller/appropriate
+    let min_width = 40u16;
+    let min_height = 10u16;
+    let max_width = 100u16;
+    let max_height = 30u16;
 
-    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
-    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_width = ((area.width as f32 * 0.6) as u16)
+        .max(min_width)
+        .min(max_width)
+        .min(area.width.saturating_sub(4)); // Leave 2 chars margin on each side
 
+    let popup_height = ((area.height as f32 * 0.6) as u16)
+        .max(min_height)
+        .min(max_height)
+        .min(area.height.saturating_sub(4)); // Leave 2 lines margin on each side
+
+    // Center the popup with bounds checking
+    let popup_x = area.x.saturating_add((area.width.saturating_sub(popup_width)) / 2);
+    let popup_y = area.y.saturating_add((area.height.saturating_sub(popup_height)) / 2);
+
+    // Ensure popup doesn't go off-screen
     let popup_area = Rect {
-        x: area.x + popup_x,
-        y: area.y + popup_y,
+        x: popup_x.min(area.x + area.width.saturating_sub(popup_width)),
+        y: popup_y.min(area.y + area.height.saturating_sub(popup_height)),
         width: popup_width,
         height: popup_height,
     };
@@ -1437,9 +1452,17 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
                 format!("{}d ago", days)
             };
 
+            // Truncate query if too long to fit in popup
+            let max_query_len = (popup_area.width as usize).saturating_sub(25); // Reserve space for other info
+            let query_display = if entry.query.len() > max_query_len {
+                format!(" {}... ", &entry.query[..max_query_len.saturating_sub(4)])
+            } else {
+                format!(" {} ", entry.query)
+            };
+
             let mut spans = vec![
                 Span::styled(
-                    format!(" {} ", entry.query),
+                    query_display,
                     Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
                 ),
             ];
@@ -1452,13 +1475,20 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
                 ));
             }
 
-            // Add filters if available
-            if let Some(filters) = &entry.filters {
-                if !filters.is_empty() {
-                    spans.push(Span::styled(
-                        format!(" [{}] ", filters),
-                        Style::default().fg(Color::DarkGray),
-                    ));
+            // Add filters if available (only if there's enough width)
+            if popup_area.width > 60 {
+                if let Some(filters) = &entry.filters {
+                    if !filters.is_empty() {
+                        let filters_display = if filters.len() > 20 {
+                            format!(" [{}...] ", &filters[..17])
+                        } else {
+                            format!(" [{}] ", filters)
+                        };
+                        spans.push(Span::styled(
+                            filters_display,
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
                 }
             }
 
@@ -1491,18 +1521,28 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
 
     frame.render_widget(list, popup_area);
 
-    // Render help text at the bottom of the popup
-    let help_text = " ↑/k: Up | ↓/j: Down | Enter: Select | Esc: Close ";
-    let help_area = Rect {
-        x: popup_area.x,
-        y: popup_area.y + popup_area.height.saturating_sub(1),
-        width: popup_area.width,
-        height: 1,
-    };
+    // Render help text at the bottom of the popup if there's enough space
+    if popup_area.height > 5 {
+        let help_text = " ↑/k: Up | ↓/j: Down | Enter: Select | Esc: Close ";
 
-    let help = Paragraph::new(help_text)
-        .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
-        .block(Block::default().borders(Borders::NONE));
+        // Ensure help text fits within popup width
+        let help_text_display = if help_text.len() > popup_area.width as usize {
+            " ↑/↓: Navigate | Enter: Select | Esc: Close "
+        } else {
+            help_text
+        };
 
-    frame.render_widget(help, help_area);
+        let help_area = Rect {
+            x: popup_area.x,
+            y: popup_area.y.saturating_add(popup_area.height.saturating_sub(1)),
+            width: popup_area.width,
+            height: 1,
+        };
+
+        let help = Paragraph::new(help_text_display)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .block(Block::default().borders(Borders::NONE));
+
+        frame.render_widget(help, help_area);
+    }
 }
