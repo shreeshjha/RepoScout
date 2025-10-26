@@ -78,6 +78,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         render_fuzzy_search_overlay(frame, app, content_chunks[0]);
     }
 
+    // Render history popup if active
+    if app.input_mode == InputMode::HistoryPopup {
+        render_history_popup(frame, app, frame.area());
+    }
+
     // Render status bar
     render_status_bar(frame, app, status_area);
 }
@@ -167,7 +172,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
 fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     let input_style = match app.input_mode {
         InputMode::Searching => Style::default().fg(Color::Yellow),
-        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch => Style::default(),
+        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch | InputMode::HistoryPopup => Style::default(),
     };
 
     let input = Paragraph::new(app.search_input.as_str())
@@ -1078,17 +1083,20 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             InputMode::FuzzySearch => {
                 Span::styled("FUZZY SEARCH | Type to filter | ESC: exit", Style::default().fg(Color::Magenta))
             }
+            InputMode::HistoryPopup => {
+                Span::styled("HISTORY | j/k: navigate | ENTER: select | ESC: close", Style::default().fg(Color::Cyan))
+            }
             InputMode::Normal => {
                 use crate::PreviewMode;
                 match app.search_mode {
                     SearchMode::Code => {
-                        Span::raw("j/k: navigate | /: search | M: switch mode | TAB: scroll | ENTER: open | q: quit")
+                        Span::raw("j/k: navigate | /: search | Ctrl+R: history | M: switch mode | TAB: scroll | ENTER: open | q: quit")
                     }
                     SearchMode::Repository => {
                         if app.preview_mode == PreviewMode::Readme {
-                            Span::styled("README | j/k: scroll | TAB: next tab | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
+                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
                         } else {
-                            Span::raw("j/k: navigate | /: search | f: fuzzy | F: filters | M: switch mode | TAB: tabs | b: bookmark | B: view | ENTER: open | q: quit")
+                            Span::raw("j/k: navigate | /: search | Ctrl+R: history | f: fuzzy | F: filters | M: switch mode | TAB: tabs | b: bookmark | B: view | ENTER: open | q: quit")
                         }
                     }
                 }
@@ -1377,4 +1385,124 @@ fn highlight_code(code: &str, language: Option<&str>) -> Vec<Line<'static>> {
     }
 
     result_lines
+}
+
+/// Render search history popup overlay
+fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Center the popup (60% width, 60% height)
+    let popup_width = (area.width as f32 * 0.6) as u16;
+    let popup_height = (area.height as f32 * 0.6) as u16;
+
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect {
+        x: area.x + popup_x,
+        y: area.y + popup_y,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    // Clear the popup area first
+    frame.render_widget(
+        Block::default().style(Style::default().bg(Color::Reset)),
+        popup_area,
+    );
+
+    // Create history items
+    let history_items: Vec<ListItem> = app
+        .search_history
+        .iter()
+        .enumerate()
+        .map(|(idx, entry)| {
+            // Format timestamp as relative time
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            let diff = now - entry.searched_at;
+
+            let time_str = if diff < 60 {
+                "just now".to_string()
+            } else if diff < 3600 {
+                let mins = diff / 60;
+                format!("{}m ago", mins)
+            } else if diff < 86400 {
+                let hours = diff / 3600;
+                format!("{}h ago", hours)
+            } else {
+                let days = diff / 86400;
+                format!("{}d ago", days)
+            };
+
+            let mut spans = vec![
+                Span::styled(
+                    format!(" {} ", entry.query),
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                ),
+            ];
+
+            // Add result count if available
+            if let Some(count) = entry.result_count {
+                spans.push(Span::styled(
+                    format!(" ({} results) ", count),
+                    Style::default().fg(Color::Gray),
+                ));
+            }
+
+            // Add filters if available
+            if let Some(filters) = &entry.filters {
+                if !filters.is_empty() {
+                    spans.push(Span::styled(
+                        format!(" [{}] ", filters),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+            }
+
+            // Add timestamp
+            spans.push(Span::styled(
+                format!(" {}", time_str),
+                Style::default().fg(Color::DarkGray),
+            ));
+
+            let line = Line::from(spans);
+
+            // Highlight selected item
+            if idx == app.history_selected_index {
+                ListItem::new(line).style(Style::default().bg(Color::Blue).fg(Color::White))
+            } else {
+                ListItem::new(line)
+            }
+        })
+        .collect();
+
+    let list = List::new(history_items)
+        .block(
+            Block::default()
+                .title(" Search History (Ctrl+R) ")
+                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+        )
+        .style(Style::default().bg(Color::Black));
+
+    frame.render_widget(list, popup_area);
+
+    // Render help text at the bottom of the popup
+    let help_text = " ↑/k: Up | ↓/j: Down | Enter: Select | Esc: Close ";
+    let help_area = Rect {
+        x: popup_area.x,
+        y: popup_area.y + popup_area.height.saturating_sub(1),
+        width: popup_area.width,
+        height: 1,
+    };
+
+    let help = Paragraph::new(help_text)
+        .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+        .block(Block::default().borders(Borders::NONE));
+
+    frame.render_widget(help, help_area);
 }

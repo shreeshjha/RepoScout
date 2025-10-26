@@ -220,6 +220,7 @@ impl CacheManager {
     /// Clear all cached data
     pub fn clear(&self) -> Result<()> {
         self.conn.execute("DELETE FROM repositories", [])?;
+        self.conn.execute("DELETE FROM search_history", [])?;
         Ok(())
     }
 

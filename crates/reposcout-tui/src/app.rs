@@ -1,6 +1,7 @@
 // TUI application state and event handling
 use reposcout_core::models::{Repository, CodeSearchResult};
 use reposcout_deps::DependencyInfo;
+use reposcout_cache::SearchHistoryEntry;
 use ratatui::widgets::ListState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,6 +17,7 @@ pub enum InputMode {
     Filtering,     // Navigating filters
     EditingFilter, // Actively typing in a filter field
     FuzzySearch,   // Fuzzy filtering current results
+    HistoryPopup,  // Browsing search history
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +146,7 @@ pub struct App {
     pub scroll_offset: usize,
     pub loading: bool,
     pub error_message: Option<String>,
+    pub error_timestamp: Option<std::time::SystemTime>,
     pub filters: SearchFilters,
     pub show_filters: bool,
     pub filter_cursor: usize,
@@ -176,6 +179,9 @@ pub struct App {
     pub code_content_cache: std::collections::HashMap<String, String>,
     // Platform status tracking
     pub platform_status: PlatformStatus,
+    // Search history popup state
+    pub search_history: Vec<SearchHistoryEntry>,
+    pub history_selected_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -200,6 +206,7 @@ impl App {
             scroll_offset: 0,
             loading: false,
             error_message: None,
+            error_timestamp: None,
             filters: SearchFilters::default(),
             show_filters: false,
             filter_cursor: 0,
@@ -227,6 +234,8 @@ impl App {
                 gitlab_configured: true,  // Always available (public repos don't need auth)
                 bitbucket_configured: false,
             },
+            search_history: Vec::new(),
+            history_selected_index: 0,
         }
     }
 
@@ -552,6 +561,30 @@ impl App {
 
     pub fn clear_error(&mut self) {
         self.error_message = None;
+        self.error_timestamp = None;
+    }
+
+    /// Set a temporary error message that will auto-clear after 5 seconds
+    pub fn set_temp_error(&mut self, message: String) {
+        self.error_message = Some(message);
+        self.error_timestamp = Some(std::time::SystemTime::now());
+    }
+
+    /// Set a permanent error message that won't auto-clear
+    pub fn set_error(&mut self, message: String) {
+        self.error_message = Some(message);
+        self.error_timestamp = None;
+    }
+
+    /// Clear error if it has been shown for more than 5 seconds
+    pub fn clear_expired_error(&mut self) {
+        if let Some(timestamp) = self.error_timestamp {
+            if let Ok(elapsed) = timestamp.elapsed() {
+                if elapsed.as_secs() >= 5 {
+                    self.clear_error();
+                }
+            }
+        }
     }
 
     pub fn get_search_query(&self) -> String {
@@ -640,6 +673,56 @@ impl App {
     /// Get code search query with filters
     pub fn get_code_search_query(&self) -> String {
         self.code_filters.build_query(&self.search_input)
+    }
+
+    // ===== Search History Methods =====
+
+    /// Enter history popup mode
+    pub fn enter_history_popup(&mut self) {
+        self.input_mode = InputMode::HistoryPopup;
+        self.history_selected_index = 0;
+    }
+
+    /// Exit history popup mode
+    pub fn exit_history_popup(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.search_history.clear();
+        self.history_selected_index = 0;
+    }
+
+    /// Load search history for display
+    pub fn load_search_history(&mut self, history: Vec<SearchHistoryEntry>) {
+        self.search_history = history;
+        self.history_selected_index = 0;
+    }
+
+    /// Navigate to next history entry
+    pub fn next_history_entry(&mut self) {
+        if !self.search_history.is_empty() {
+            self.history_selected_index = (self.history_selected_index + 1).min(self.search_history.len() - 1);
+        }
+    }
+
+    /// Navigate to previous history entry
+    pub fn previous_history_entry(&mut self) {
+        if self.history_selected_index > 0 {
+            self.history_selected_index -= 1;
+        }
+    }
+
+    /// Get the currently selected history entry
+    pub fn selected_history_entry(&self) -> Option<&SearchHistoryEntry> {
+        self.search_history.get(self.history_selected_index)
+    }
+
+    /// Apply selected history entry to search
+    pub fn apply_selected_history(&mut self) -> Option<String> {
+        // Clone the query first to avoid borrowing issues
+        let query = self.selected_history_entry().map(|e| e.query.clone())?;
+        // Set search input to the query from history
+        self.search_input = query.clone();
+        // Return the query so caller can trigger a search
+        Some(query)
     }
 }
 
