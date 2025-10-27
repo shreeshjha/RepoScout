@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 use chrono::Datelike;
@@ -1391,40 +1391,65 @@ fn highlight_code(code: &str, language: Option<&str>) -> Vec<Line<'static>> {
 fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Calculate popup size with minimum and maximum constraints
-    // Use 60% of screen or fixed size, whichever is smaller/appropriate
-    let min_width = 40u16;
-    let min_height = 10u16;
-    let max_width = 100u16;
-    let max_height = 30u16;
+    // Calculate responsive popup dimensions based on available space
+    // Ensure minimum viable size and proper margins
+    let margin_horizontal = 2u16;
+    let margin_vertical = 2u16;
 
-    let popup_width = ((area.width as f32 * 0.6) as u16)
-        .max(min_width)
-        .min(max_width)
-        .min(area.width.saturating_sub(4)); // Leave 2 chars margin on each side
+    // Calculate available space after margins
+    let available_width = area.width.saturating_sub(margin_horizontal * 2);
+    let available_height = area.height.saturating_sub(margin_vertical * 2);
 
-    let popup_height = ((area.height as f32 * 0.6) as u16)
-        .max(min_height)
-        .min(max_height)
-        .min(area.height.saturating_sub(4)); // Leave 2 lines margin on each side
-
-    // Center the popup with bounds checking
-    let popup_x = area.x.saturating_add((area.width.saturating_sub(popup_width)) / 2);
-    let popup_y = area.y.saturating_add((area.height.saturating_sub(popup_height)) / 2);
-
-    // Ensure popup doesn't go off-screen
-    let popup_area = Rect {
-        x: popup_x.min(area.x + area.width.saturating_sub(popup_width)),
-        y: popup_y.min(area.y + area.height.saturating_sub(popup_height)),
-        width: popup_width,
-        height: popup_height,
+    // Determine popup size with adaptive scaling
+    let popup_width = if available_width < 50 {
+        // Very small terminal - use most of available space
+        available_width
+    } else if available_width < 80 {
+        // Small terminal - use 90% of space
+        (available_width * 9) / 10
+    } else {
+        // Normal terminal - use 60% of space, capped at 100
+        ((available_width * 3) / 5).min(100)
     };
 
-    // Clear the popup area first
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Color::Reset)),
-        popup_area,
-    );
+    let popup_height = if available_height < 15 {
+        // Very small terminal - use most of available space
+        available_height
+    } else if available_height < 25 {
+        // Small terminal - use 80% of space
+        (available_height * 4) / 5
+    } else {
+        // Normal terminal - use 60% of space, capped at 30
+        ((available_height * 3) / 5).min(30)
+    };
+
+    // Ensure minimum size for usability
+    let popup_width = popup_width.max(30); // Minimum 30 chars
+    let popup_height = popup_height.max(8); // Minimum 8 lines
+
+    // Center the popup using ratatui Layout
+    let vertical_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length((area.height.saturating_sub(popup_height)) / 2),
+            Constraint::Length(popup_height),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    let horizontal_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length((area.width.saturating_sub(popup_width)) / 2),
+            Constraint::Length(popup_width),
+            Constraint::Min(0),
+        ])
+        .split(vertical_chunks[1]);
+
+    let popup_area = horizontal_chunks[1];
+
+    // Clear the popup area to ensure clean rendering
+    frame.render_widget(Clear, popup_area);
 
     // Create history items
     let history_items: Vec<ListItem> = app
@@ -1453,9 +1478,14 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
             };
 
             // Truncate query if too long to fit in popup
-            let max_query_len = (popup_area.width as usize).saturating_sub(25); // Reserve space for other info
+            // Account for borders (2), padding (2), result count (~15), timestamp (~10)
+            let reserved_space = 30usize;
+            let max_query_len = (popup_area.width as usize).saturating_sub(reserved_space).max(10);
+
             let query_display = if entry.query.len() > max_query_len {
-                format!(" {}... ", &entry.query[..max_query_len.saturating_sub(4)])
+                // Safely truncate, handling potential UTF-8 boundaries
+                let truncate_at = max_query_len.saturating_sub(4).min(entry.query.len());
+                format!(" {}... ", &entry.query[..truncate_at])
             } else {
                 format!(" {} ", entry.query)
             };
@@ -1509,10 +1539,17 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    // Add title with terminal size info for debugging
+    let title = format!(
+        " Search History (Ctrl+R) [{}x{}] ",
+        popup_area.width,
+        popup_area.height
+    );
+
     let list = List::new(history_items)
         .block(
             Block::default()
-                .title(" Search History (Ctrl+R) ")
+                .title(title)
                 .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan))
