@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 use chrono::Datelike;
@@ -78,6 +78,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         render_fuzzy_search_overlay(frame, app, content_chunks[0]);
     }
 
+    // Render history popup if active
+    if app.input_mode == InputMode::HistoryPopup {
+        render_history_popup(frame, app, frame.area());
+    }
+
     // Render status bar
     render_status_bar(frame, app, status_area);
 }
@@ -116,15 +121,28 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         SearchMode::Code => Color::Green,
     };
 
-    let platforms = vec![
-        Line::from(vec![
-            Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-            Span::raw(" | "),
-            Span::styled(" GitHub ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" "),
-            Span::styled(" GitLab ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        ]),
+    // Build platform status indicators with full names
+    let mut platform_spans = vec![
+        Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
+        Span::raw(" | "),
     ];
+
+    // GitHub status (Green - always configured)
+    platform_spans.push(Span::styled(" GitHub ✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
+    platform_spans.push(Span::raw(" "));
+
+    // GitLab status (Magenta/Purple - always configured)
+    platform_spans.push(Span::styled(" GitLab ✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
+    platform_spans.push(Span::raw(" "));
+
+    // Bitbucket status (Blue when configured, Red with X when not)
+    if app.platform_status.bitbucket_configured {
+        platform_spans.push(Span::styled(" Bitbucket ✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+    } else {
+        platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+    }
+
+    let platforms = vec![Line::from(platform_spans)];
     let platforms_widget = Paragraph::new(platforms)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default())
@@ -154,7 +172,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
 fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     let input_style = match app.input_mode {
         InputMode::Searching => Style::default().fg(Color::Yellow),
-        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch => Style::default(),
+        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch | InputMode::HistoryPopup => Style::default(),
     };
 
     let input = Paragraph::new(app.search_input.as_str())
@@ -1034,9 +1052,25 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
 
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let status = if let Some(error) = &app.error_message {
-        Span::styled(error, Style::default().fg(Color::Red))
+        vec![Span::styled(error, Style::default().fg(Color::Red))]
+    } else if !app.platform_status.bitbucket_configured {
+        // Show warning about missing Bitbucket credentials
+        vec![
+            Span::styled("⚠ Bitbucket credentials not available ", Style::default().fg(Color::Yellow)),
+            Span::styled("(set BITBUCKET_USERNAME and BITBUCKET_APP_PASSWORD) ", Style::default().fg(Color::DarkGray)),
+            Span::raw("| "),
+            match app.input_mode {
+                InputMode::Searching => {
+                    Span::styled("SEARCH MODE | ESC: normal | ENTER: search", Style::default().fg(Color::Cyan))
+                }
+                InputMode::Normal => {
+                    Span::raw("j/k: navigate | /: search | q: quit")
+                }
+                _ => Span::raw(""),
+            }
+        ]
     } else {
-        match app.input_mode {
+        vec![match app.input_mode {
             InputMode::Searching => {
                 Span::styled("SEARCH MODE | ESC: normal mode | ENTER: search", Style::default().fg(Color::Yellow))
             }
@@ -1049,25 +1083,28 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             InputMode::FuzzySearch => {
                 Span::styled("FUZZY SEARCH | Type to filter | ESC: exit", Style::default().fg(Color::Magenta))
             }
+            InputMode::HistoryPopup => {
+                Span::styled("HISTORY | j/k: navigate | ENTER: select | ESC: close", Style::default().fg(Color::Cyan))
+            }
             InputMode::Normal => {
                 use crate::PreviewMode;
                 match app.search_mode {
                     SearchMode::Code => {
-                        Span::raw("j/k: navigate | /: search | M: switch mode | TAB: scroll | ENTER: open | q: quit")
+                        Span::raw("j/k: navigate | /: search | Ctrl+R: history | M: switch mode | TAB: scroll | ENTER: open | q: quit")
                     }
                     SearchMode::Repository => {
                         if app.preview_mode == PreviewMode::Readme {
-                            Span::styled("README | j/k: scroll | TAB: next tab | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
+                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
                         } else {
-                            Span::raw("j/k: navigate | /: search | f: fuzzy | F: filters | M: switch mode | TAB: tabs | b: bookmark | B: view | ENTER: open | q: quit")
+                            Span::raw("j/k: navigate | /: search | Ctrl+R: history | f: fuzzy | F: filters | M: switch mode | TAB: tabs | b: bookmark | B: view | ENTER: open | q: quit")
                         }
                     }
                 }
             }
-        }
+        }]
     };
 
-    let paragraph = Paragraph::new(Line::from(vec![status]));
+    let paragraph = Paragraph::new(Line::from(status));
     frame.render_widget(paragraph, area);
 }
 
@@ -1348,4 +1385,201 @@ fn highlight_code(code: &str, language: Option<&str>) -> Vec<Line<'static>> {
     }
 
     result_lines
+}
+
+/// Render search history popup overlay
+fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Calculate responsive popup dimensions based on available space
+    // Ensure minimum viable size and proper margins
+    let margin_horizontal = 2u16;
+    let margin_vertical = 2u16;
+
+    // Calculate available space after margins
+    let available_width = area.width.saturating_sub(margin_horizontal * 2);
+    let available_height = area.height.saturating_sub(margin_vertical * 2);
+
+    // Determine popup size with adaptive scaling
+    let popup_width = if available_width < 50 {
+        // Very small terminal - use most of available space
+        available_width
+    } else if available_width < 80 {
+        // Small terminal - use 90% of space
+        (available_width * 9) / 10
+    } else {
+        // Normal terminal - use 60% of space, capped at 100
+        ((available_width * 3) / 5).min(100)
+    };
+
+    let popup_height = if available_height < 15 {
+        // Very small terminal - use most of available space
+        available_height
+    } else if available_height < 25 {
+        // Small terminal - use 80% of space
+        (available_height * 4) / 5
+    } else {
+        // Normal terminal - use 60% of space, capped at 30
+        ((available_height * 3) / 5).min(30)
+    };
+
+    // Ensure minimum size for usability
+    let popup_width = popup_width.max(30); // Minimum 30 chars
+    let popup_height = popup_height.max(8); // Minimum 8 lines
+
+    // Center the popup using ratatui Layout
+    let vertical_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length((area.height.saturating_sub(popup_height)) / 2),
+            Constraint::Length(popup_height),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    let horizontal_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length((area.width.saturating_sub(popup_width)) / 2),
+            Constraint::Length(popup_width),
+            Constraint::Min(0),
+        ])
+        .split(vertical_chunks[1]);
+
+    let popup_area = horizontal_chunks[1];
+
+    // Clear the popup area to ensure clean rendering
+    frame.render_widget(Clear, popup_area);
+
+    // Create history items
+    let history_items: Vec<ListItem> = app
+        .search_history
+        .iter()
+        .enumerate()
+        .map(|(idx, entry)| {
+            // Format timestamp as relative time
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            let diff = now - entry.searched_at;
+
+            let time_str = if diff < 60 {
+                "just now".to_string()
+            } else if diff < 3600 {
+                let mins = diff / 60;
+                format!("{}m ago", mins)
+            } else if diff < 86400 {
+                let hours = diff / 3600;
+                format!("{}h ago", hours)
+            } else {
+                let days = diff / 86400;
+                format!("{}d ago", days)
+            };
+
+            // Truncate query if too long to fit in popup
+            // Account for borders (2), padding (2), result count (~15), timestamp (~10)
+            let reserved_space = 30usize;
+            let max_query_len = (popup_area.width as usize).saturating_sub(reserved_space).max(10);
+
+            let query_display = if entry.query.len() > max_query_len {
+                // Safely truncate, handling potential UTF-8 boundaries
+                let truncate_at = max_query_len.saturating_sub(4).min(entry.query.len());
+                format!(" {}... ", &entry.query[..truncate_at])
+            } else {
+                format!(" {} ", entry.query)
+            };
+
+            let mut spans = vec![
+                Span::styled(
+                    query_display,
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                ),
+            ];
+
+            // Add result count if available
+            if let Some(count) = entry.result_count {
+                spans.push(Span::styled(
+                    format!(" ({} results) ", count),
+                    Style::default().fg(Color::Gray),
+                ));
+            }
+
+            // Add filters if available (only if there's enough width)
+            if popup_area.width > 60 {
+                if let Some(filters) = &entry.filters {
+                    if !filters.is_empty() {
+                        let filters_display = if filters.len() > 20 {
+                            format!(" [{}...] ", &filters[..17])
+                        } else {
+                            format!(" [{}] ", filters)
+                        };
+                        spans.push(Span::styled(
+                            filters_display,
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
+                }
+            }
+
+            // Add timestamp
+            spans.push(Span::styled(
+                format!(" {}", time_str),
+                Style::default().fg(Color::DarkGray),
+            ));
+
+            let line = Line::from(spans);
+
+            // Highlight selected item
+            if idx == app.history_selected_index {
+                ListItem::new(line).style(Style::default().bg(Color::Blue).fg(Color::White))
+            } else {
+                ListItem::new(line)
+            }
+        })
+        .collect();
+
+    // Add title with terminal size info for debugging
+    let title = format!(
+        " Search History (Ctrl+R) [{}x{}] ",
+        popup_area.width,
+        popup_area.height
+    );
+
+    let list = List::new(history_items)
+        .block(
+            Block::default()
+                .title(title)
+                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+        )
+        .style(Style::default().bg(Color::Black));
+
+    frame.render_widget(list, popup_area);
+
+    // Render help text at the bottom of the popup if there's enough space
+    if popup_area.height > 5 {
+        let help_text = " ↑/k: Up | ↓/j: Down | Enter: Select | Esc: Close ";
+
+        // Ensure help text fits within popup width
+        let help_text_display = if help_text.len() > popup_area.width as usize {
+            " ↑/↓: Navigate | Enter: Select | Esc: Close "
+        } else {
+            help_text
+        };
+
+        let help_area = Rect {
+            x: popup_area.x,
+            y: popup_area.y.saturating_add(popup_area.height.saturating_sub(1)),
+            width: popup_area.width,
+            height: 1,
+        };
+
+        let help = Paragraph::new(help_text_display)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .block(Block::default().borders(Borders::NONE));
+
+        frame.render_widget(help, help_area);
+    }
 }

@@ -1,13 +1,13 @@
 // TUI event loop and terminal management
 use crate::{App, InputMode, SearchMode};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
-use reposcout_api::{GitHubClient, GitLabClient};
+use reposcout_api::{BitbucketClient, GitHubClient, GitLabClient};
 use reposcout_cache::CacheManager;
 
 pub async fn run_tui<F>(
@@ -15,6 +15,7 @@ pub async fn run_tui<F>(
     mut on_search: F,
     github_client: GitHubClient,
     gitlab_client: GitLabClient,
+    bitbucket_client: BitbucketClient,
     cache: CacheManager,
 ) -> anyhow::Result<()>
 where
@@ -36,11 +37,16 @@ where
 
     // Main loop
     loop {
+        // Clear expired temporary errors
+        app.clear_expired_error();
+
         // Clear and redraw terminal
         terminal.draw(|f| crate::ui::render(f, &mut app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
+        // Poll for events with timeout to allow periodic error clearing
+        if event::poll(std::time::Duration::from_millis(500))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
                 match app.input_mode {
                     InputMode::Searching => match key.code {
                         KeyCode::Enter => {
@@ -58,9 +64,16 @@ where
                                         let query = app.get_search_query();
                                         match on_search(&query).await {
                                             Ok(results) => {
+                                                // Record search in history
+                                                let result_count = results.len();
                                                 app.set_results(results);
                                                 app.loading = false;
                                                 app.error_message = None;
+
+                                                // Save to search history
+                                                if let Err(e) = cache.add_search_history(&app.search_input, None, Some(result_count as i64)) {
+                                                    tracing::warn!("Failed to save search history: {}", e);
+                                                }
                                             }
                                             Err(e) => {
                                                 let error_str = e.to_string();
@@ -225,7 +238,81 @@ where
                         }
                         _ => {}
                     },
-                    InputMode::Normal => match key.code {
+                    InputMode::HistoryPopup => match key.code {
+                        KeyCode::Esc => {
+                            app.exit_history_popup();
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            app.next_history_entry();
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            app.previous_history_entry();
+                        }
+                        KeyCode::Enter => {
+                            // Apply selected history entry and trigger search
+                            if let Some(query) = app.apply_selected_history() {
+                                app.exit_history_popup();
+                                app.loading = true;
+                                app.enter_normal_mode();
+                                terminal.clear()?;
+                                terminal.draw(|f| crate::ui::render(f, &mut app))?;
+
+                                match app.search_mode {
+                                    SearchMode::Repository => {
+                                        let query_str = app.get_search_query();
+                                        match on_search(&query_str).await {
+                                            Ok(results) => {
+                                                // Record search in history
+                                                let result_count = results.len();
+                                                app.set_results(results);
+                                                app.loading = false;
+                                                app.error_message = None;
+
+                                                // Save to search history
+                                                if let Err(e) = cache.add_search_history(&app.search_input, None, Some(result_count as i64)) {
+                                                    tracing::warn!("Failed to save search history: {}", e);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                app.loading = false;
+                                            }
+                                        }
+                                    }
+                                    SearchMode::Code => {
+                                        // Code search not implemented in history yet
+                                        app.error_message = Some("Code search history not yet supported".to_string());
+                                        app.loading = false;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
+                    InputMode::Normal => {
+                        // Handle Ctrl+R for history popup
+                        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
+                            // Load search history
+                            if let Ok(history) = cache.get_search_history(20) {
+                                if !history.is_empty() {
+                                    app.load_search_history(history);
+                                    app.enter_history_popup();
+                                } else {
+                                    app.set_temp_error("No search history available (Press Esc to dismiss)".to_string());
+                                }
+                            } else {
+                                app.set_temp_error("Failed to load search history (Press Esc to dismiss)".to_string());
+                            }
+                            continue;
+                        }
+
+                        match key.code {
+                        KeyCode::Esc => {
+                            // Clear error message if present
+                            if app.error_message.is_some() {
+                                app.clear_error();
+                            }
+                        }
                         KeyCode::Char('q') => {
                             break;
                         }
@@ -321,7 +408,14 @@ where
                                             reposcout_core::models::Platform::GitLab => {
                                                 gitlab_client.get_readme(&repo_name).await.map_err(|e| anyhow::anyhow!("{}", e))
                                             }
-                                            _ => Err(anyhow::anyhow!("Platform not supported")),
+                                            reposcout_core::models::Platform::Bitbucket => {
+                                                let parts: Vec<&str> = repo_name.split('/').collect();
+                                                if parts.len() == 2 {
+                                                    bitbucket_client.get_readme(parts[0], parts[1]).await.map_err(|e| anyhow::anyhow!("{}", e))
+                                                } else {
+                                                    Err(anyhow::anyhow!("Invalid repository name format"))
+                                                }
+                                            }
                                         };
 
                                         match readme_result {
@@ -392,7 +486,21 @@ where
                                                         Err(_) => Ok(None),
                                                     }
                                                 }
-                                                _ => Ok(None),
+                                                reposcout_core::models::Platform::Bitbucket => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match bitbucket_client.get_cargo_toml(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_cargo_toml(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
                                             }
                                         }
                                         Some("JavaScript") | Some("TypeScript") => {
@@ -422,7 +530,21 @@ where
                                                         Err(_) => Ok(None),
                                                     }
                                                 }
-                                                _ => Ok(None),
+                                                reposcout_core::models::Platform::Bitbucket => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match bitbucket_client.get_package_json(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_package_json(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
                                             }
                                         }
                                         Some("Python") => {
@@ -452,7 +574,21 @@ where
                                                         Err(_) => Ok(None),
                                                     }
                                                 }
-                                                _ => Ok(None),
+                                                reposcout_core::models::Platform::Bitbucket => {
+                                                    let parts: Vec<&str> = repo_name.split('/').collect();
+                                                    if parts.len() == 2 {
+                                                        match bitbucket_client.get_requirements_txt(parts[0], parts[1]).await {
+                                                            Ok(content) => {
+                                                                reposcout_deps::parse_requirements_txt(&content)
+                                                                    .map(Some)
+                                                                    .map_err(|e| anyhow::anyhow!("{}", e))
+                                                            }
+                                                            Err(_) => Ok(None),
+                                                        }
+                                                    } else {
+                                                        Err(anyhow::anyhow!("Invalid repository name format"))
+                                                    }
+                                                }
                                             }
                                         }
                                         _ => Ok(None),
@@ -542,7 +678,9 @@ where
                             }
                         }
                         _ => {}
+                        }
                     },
+                }
                 }
             }
         }
