@@ -14,21 +14,27 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
+    let screen_height = frame.area().height;
+
+    // Dynamic header height: 4 if Bitbucket not configured (extra line for warning), else 3
+    let header_height = if !app.platform_status.bitbucket_configured { 4 } else { 3 };
+
+    // Make constraints adaptive to screen size
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(if app.show_filters {
             vec![
-                Constraint::Length(3),  // Header
-                Constraint::Length(3),  // Search input
-                Constraint::Length(9),  // Filters panel
-                Constraint::Min(10),    // Main content
+                Constraint::Length(header_height.min(screen_height / 6)),  // Header (dynamic)
+                Constraint::Length(3.min(screen_height / 8)),  // Search input
+                Constraint::Length(9.min(screen_height / 4)),  // Filters panel
+                Constraint::Min(5),    // Main content (minimum 5 lines)
                 Constraint::Length(1),  // Status bar
             ]
         } else {
             vec![
-                Constraint::Length(3),  // Header
-                Constraint::Length(3),  // Search input
-                Constraint::Min(10),    // Main content
+                Constraint::Length(header_height.min(screen_height / 6)),  // Header (dynamic)
+                Constraint::Length(3.min(screen_height / 8)),  // Search input
+                Constraint::Min(5),    // Main content (minimum 5 lines)
                 Constraint::Length(1),  // Status bar
             ]
         })
@@ -49,11 +55,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     };
 
     // Split main content into results and preview
+    // Adaptive split: on narrow screens, give more space to results
+    let screen_width = frame.area().width;
+    let (results_pct, preview_pct) = if screen_width < 100 {
+        (50, 50)  // Equal split on narrow screens
+    } else if screen_width < 150 {
+        (45, 55)  // Slightly favor preview on medium screens
+    } else {
+        (40, 60)  // More preview space on wide screens
+    };
+
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(40),  // Results list
-            Constraint::Percentage(60),  // Preview pane
+            Constraint::Percentage(results_pct),  // Results list
+            Constraint::Percentage(preview_pct),  // Preview pane
         ])
         .split(content_area);
 
@@ -88,67 +104,112 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
-    // Split header into three sections: left, center, right
-    let header_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-        ])
-        .split(area);
+    let screen_width = area.width;
 
-    // Left: Logo and version
-    let logo = vec![
-        Line::from(vec![
-            Span::styled("🔍 ", Style::default().fg(Color::Cyan)),
-            Span::styled("RepoScout", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(" v1.0.0", Style::default().fg(Color::DarkGray)),
-        ]),
-    ];
+    // Adaptive layout based on screen width
+    let header_chunks = if screen_width < 100 {
+        // Narrow: Stack vertically or use simpler layout
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(40),
+                Constraint::Percentage(60),
+            ])
+            .split(area)
+    } else {
+        // Normal: Three-column layout
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(25),
+                Constraint::Percentage(50),
+                Constraint::Percentage(25),
+            ])
+            .split(area)
+    };
+
+    // Left: Logo and version (adaptive)
+    let logo_text = if screen_width < 80 {
+        "🔍 RS"  // Abbreviated on tiny screens
+    } else if screen_width < 100 {
+        "🔍 RepoScout"  // No version on small screens
+    } else {
+        "🔍 RepoScout v1.0.0"  // Full on normal screens
+    };
+
+    let logo = vec![Line::from(vec![
+        Span::styled(logo_text, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+    ])];
+
     let logo_widget = Paragraph::new(logo)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default());
     frame.render_widget(logo_widget, header_chunks[0]);
 
-    // Center: Search mode and platform status
-    let mode_text = match app.search_mode {
-        SearchMode::Repository => "Repository Search",
-        SearchMode::Code => "Code Search",
+    // Center: Search mode and platform status (adaptive)
+    let mode_text = if screen_width < 100 {
+        match app.search_mode {
+            SearchMode::Repository => "Repo",
+            SearchMode::Code => "Code",
+        }
+    } else {
+        match app.search_mode {
+            SearchMode::Repository => "Repository Search",
+            SearchMode::Code => "Code Search",
+        }
     };
     let mode_color = match app.search_mode {
         SearchMode::Repository => Color::Cyan,
         SearchMode::Code => Color::Green,
     };
 
-    // Build platform status indicators with full names
+    // Build platform status indicators (adaptive based on width)
     let mut platform_spans = vec![
         Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-        Span::raw(" | "),
     ];
 
-    // GitHub status (Green - always configured)
-    platform_spans.push(Span::styled(" GitHub ✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
-    platform_spans.push(Span::raw(" "));
-
-    // GitLab status (Magenta/Purple - always configured)
-    platform_spans.push(Span::styled(" GitLab ✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
-    platform_spans.push(Span::raw(" "));
-
-    // Bitbucket status (Blue when configured, Red with X when not)
-    if app.platform_status.bitbucket_configured {
-        platform_spans.push(Span::styled(" Bitbucket ✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+    // Only show separator if we have room
+    if screen_width > 80 {
+        platform_spans.push(Span::raw(" | "));
     } else {
-        platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::raw(" "));
+    }
+
+    // Platform badges - abbreviated on narrow screens
+    if screen_width < 100 {
+        // Compact mode: just initials with checkmarks
+        platform_spans.push(Span::styled(" GH✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::styled(" GL✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
+        if app.platform_status.bitbucket_configured {
+            platform_spans.push(Span::styled(" BB✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+        } else {
+            platform_spans.push(Span::styled(" BB✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+        }
+    } else {
+        // Full mode: full names
+        platform_spans.push(Span::styled(" GitHub ✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::raw(" "));
+        platform_spans.push(Span::styled(" GitLab ✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::raw(" "));
+        if app.platform_status.bitbucket_configured {
+            platform_spans.push(Span::styled(" Bitbucket ✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+        } else {
+            platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+        }
     }
 
     let mut platform_lines = vec![Line::from(platform_spans)];
 
-    // Add subtle warning for Bitbucket if not configured
+    // Add Bitbucket warning on separate line (adaptive text)
     if !app.platform_status.bitbucket_configured {
+        let warning_text = if screen_width < 120 {
+            "⚠ Set BB credentials"  // Short version
+        } else {
+            "⚠ Set BITBUCKET_USERNAME & BITBUCKET_APP_PASSWORD"  // Full version
+        };
+
         platform_lines.push(Line::from(vec![
-            Span::styled("⚠ ", Style::default().fg(Color::Yellow)),
-            Span::styled("Set BITBUCKET_USERNAME & BITBUCKET_APP_PASSWORD", Style::default().fg(Color::DarkGray)),
+            Span::styled(warning_text, Style::default().fg(Color::Yellow)),
         ]));
     }
 
@@ -156,6 +217,14 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default())
         .alignment(ratatui::layout::Alignment::Center);
+
+    // Render in center area (skip stats on narrow screens)
+    if screen_width < 100 {
+        // Narrow: platforms take remaining space
+        frame.render_widget(platforms_widget, header_chunks[1]);
+        return; // Skip stats rendering
+    }
+
     frame.render_widget(platforms_widget, header_chunks[1]);
 
     // Right: Stats
@@ -205,6 +274,18 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
+    // Calculate adaptive description length based on area width
+    let available_width = area.width.saturating_sub(10); // Account for borders and padding
+    let desc_max_length = if available_width < 50 {
+        30  // Very narrow
+    } else if available_width < 80 {
+        40  // Narrow
+    } else if available_width < 120 {
+        60  // Medium (default)
+    } else {
+        80  // Wide
+    };
+
     // Show loading message if loading
     if app.loading {
         let loading_text = vec![
@@ -319,11 +400,11 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
             let line2 = Line::from(line2_spans);
 
             // Line 3: Description (VERY MUTED so it doesn't compete with name)
-            // Use char_indices() to safely truncate at character boundaries
+            // Use char_indices() to safely truncate at character boundaries - adaptive
             let description = if let Some(desc) = &repo.description {
                 let char_count = desc.chars().count();
-                if char_count > 60 {
-                    let truncated: String = desc.chars().take(57).collect();
+                if char_count > desc_max_length as usize {
+                    let truncated: String = desc.chars().take(desc_max_length as usize - 3).collect();
                     format!("     {}...", truncated)
                 } else {
                     format!("     {}", desc)
@@ -1695,12 +1776,12 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// Generate GitHub-style activity heatmap
+/// Generate GitHub-style activity heatmap (adaptive to width)
 fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<Line> {
     use chrono::{Datelike, Duration, Utc};
 
     let now = Utc::now();
-    let one_year_ago = now - Duration::days(365);
+    let _one_year_ago = now - Duration::days(365);
 
     // Calculate repository age in days
     let repo_age_days = (now - repo.created_at).num_days();
@@ -1721,9 +1802,12 @@ fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<L
 
     let mut lines = vec![];
 
-    // Month labels (condensed)
+    // Adaptive: show fewer months/weeks on narrow screens
+    // We'll show 52 weeks but can adapt labels
     let months = ["Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"];
     let mut month_spans = vec![Span::raw("     ")]; // Indent for day labels
+
+    // Show month labels (every other month on narrow displays could be added as enhancement)
     for month in &months {
         month_spans.push(Span::styled(
             format!("{:>5}", month),
