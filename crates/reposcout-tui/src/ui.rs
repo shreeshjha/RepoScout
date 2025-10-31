@@ -880,19 +880,19 @@ fn render_activity_preview(app: &App) -> Vec<Line> {
             }
         }
 
-        // Activity Heatmap (GitHub-style)
+        // Activity Metrics
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled(
-                "Activity Heatmap (Last 12 Months)",
+                "━━━ Activity & Engagement ━━━",
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             ),
         ]));
         lines.push(Line::from(""));
 
-        // Generate heatmap based on repository activity
-        let heatmap_lines = generate_activity_heatmap(repo);
-        lines.extend(heatmap_lines);
+        // Generate activity visualization
+        let activity_lines = generate_activity_heatmap(repo);
+        lines.extend(activity_lines);
 
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
@@ -1776,134 +1776,187 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// Generate GitHub-style activity heatmap (adaptive to width)
+/// Generate simplified activity visualization based on repository metrics
 fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<Line> {
-    use chrono::{Datelike, Duration, Utc};
+    use chrono::Utc;
 
     let now = Utc::now();
-    let _one_year_ago = now - Duration::days(365);
-
-    // Calculate repository age in days
-    let repo_age_days = (now - repo.created_at).num_days();
-    let days_since_last_push = (now - repo.pushed_at).num_days();
-
-    // Determine activity level based on health metrics and push date
-    let activity_level = if let Some(health) = &repo.health {
-        // Use activity score to determine intensity
-        health.metrics.activity_score
-    } else {
-        // Fallback: estimate from days since push
-        if days_since_last_push < 7 { 25 }
-        else if days_since_last_push < 30 { 20 }
-        else if days_since_last_push < 90 { 15 }
-        else if days_since_last_push < 180 { 10 }
-        else { 5 }
-    };
+    let days_since_created = (now - repo.created_at).num_days();
+    let days_since_updated = (now - repo.updated_at).num_days();
+    let days_since_pushed = (now - repo.pushed_at).num_days();
 
     let mut lines = vec![];
 
-    // Adaptive: show fewer months/weeks on narrow screens
-    // We'll show 52 weeks but can adapt labels
-    let months = ["Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"];
-    let mut month_spans = vec![Span::raw("     ")]; // Indent for day labels
-
-    // Show month labels (every other month on narrow displays could be added as enhancement)
-    for month in &months {
-        month_spans.push(Span::styled(
-            format!("{:>5}", month),
-            Style::default().fg(Color::DarkGray),
-        ));
-    }
-    lines.push(Line::from(month_spans));
-
-    // Generate heatmap for Mon/Wed/Fri pattern
-    let days_of_week = ["Mon", "Wed", "Fri"];
-
-    for day in &days_of_week {
-        let mut day_spans = vec![
-            Span::styled(
-                format!("{:>3}  ", day),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ];
-
-        // Generate ~52 weeks worth of squares (one per week for the year)
-        for week in 0..52 {
-            let color = if repo_age_days < (365 - week * 7) {
-                // Repository didn't exist yet
-                Color::Rgb(22, 27, 34) // Dark background
-            } else if days_since_last_push < 30 && week > 48 {
-                // Recent activity in last month
-                Color::Rgb(57, 211, 83) // Bright green
-            } else if days_since_last_push < 90 && week > 39 {
-                // Activity in last 3 months
-                Color::Rgb(48, 161, 78) // Medium green
-            } else if days_since_last_push < 180 && week > 26 {
-                // Activity in last 6 months
-                Color::Rgb(38, 128, 68) // Dark green
-            } else if activity_level > 15 && week > 40 {
-                // High activity score, recent weeks
-                Color::Rgb(64, 196, 99) // Greenish
-            } else if activity_level > 10 {
-                // Moderate activity
-                Color::Rgb(33, 110, 57) // Darker green
-            } else {
-                // Low/no activity
-                Color::Rgb(22, 27, 34) // Very dark
-            };
-
-            day_spans.push(Span::styled(
-                "█ ",
-                Style::default().fg(color),
-            ));
-        }
-
-        lines.push(Line::from(day_spans));
-    }
-
-    // Activity legend
-    lines.push(Line::from(""));
+    // Show key activity metrics in a clearer format
     lines.push(Line::from(vec![
-        Span::raw("  Less "),
-        Span::styled("█", Style::default().fg(Color::Rgb(22, 27, 34))),
-        Span::raw(" "),
-        Span::styled("█", Style::default().fg(Color::Rgb(33, 110, 57))),
-        Span::raw(" "),
-        Span::styled("█", Style::default().fg(Color::Rgb(38, 128, 68))),
-        Span::raw(" "),
-        Span::styled("█", Style::default().fg(Color::Rgb(48, 161, 78))),
-        Span::raw(" "),
-        Span::styled("█", Style::default().fg(Color::Rgb(57, 211, 83))),
-        Span::styled(" More", Style::default().fg(Color::DarkGray)),
-    ]));
-
-    // Activity summary
-    lines.push(Line::from(""));
-    let activity_summary = if days_since_last_push == 0 {
-        "🔥 Active today"
-    } else if days_since_last_push < 7 {
-        "✓ Active this week"
-    } else if days_since_last_push < 30 {
-        "○ Active this month"
-    } else if days_since_last_push < 90 {
-        "⏸ Last activity 3 months ago"
-    } else if days_since_last_push < 180 {
-        "⚠ Last activity 6 months ago"
-    } else {
-        "💀 Inactive for over 6 months"
-    };
-
-    lines.push(Line::from(vec![
-        Span::styled("  ", Style::default()),
+        Span::styled("Repository Age:    ", Style::default().fg(Color::Gray)),
         Span::styled(
-            activity_summary,
-            Style::default().fg(
-                if days_since_last_push < 30 { Color::Green }
-                else if days_since_last_push < 90 { Color::Yellow }
-                else { Color::Red }
-            ),
+            format_duration_friendly(days_since_created),
+            Style::default().fg(Color::Cyan),
         ),
     ]));
 
+    lines.push(Line::from(vec![
+        Span::styled("Last Updated:      ", Style::default().fg(Color::Gray)),
+        Span::styled(
+            format_duration_friendly(days_since_updated),
+            Style::default().fg(get_freshness_color(days_since_updated)),
+        ),
+    ]));
+
+    lines.push(Line::from(vec![
+        Span::styled("Last Pushed:       ", Style::default().fg(Color::Gray)),
+        Span::styled(
+            format_duration_friendly(days_since_pushed),
+            Style::default().fg(get_freshness_color(days_since_pushed)),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+
+    // Visual activity bar
+    lines.push(Line::from(vec![
+        Span::styled("Activity Level:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from(""));
+
+    // Create a simple visual bar based on activity
+    let activity_level = if let Some(health) = &repo.health {
+        health.metrics.activity_score
+    } else {
+        if days_since_pushed < 7 { 25 }
+        else if days_since_pushed < 30 { 20 }
+        else if days_since_pushed < 90 { 15 }
+        else if days_since_pushed < 180 { 10 }
+        else { 5 }
+    };
+
+    // Create visual bar (30 is max)
+    let filled_blocks = (activity_level as f32 / 30.0 * 20.0) as usize;
+    let empty_blocks = 20 - filled_blocks;
+
+    let bar_color = if activity_level >= 25 {
+        Color::Green
+    } else if activity_level >= 20 {
+        Color::Rgb(154, 205, 50) // Yellow-green
+    } else if activity_level >= 15 {
+        Color::Yellow
+    } else if activity_level >= 10 {
+        Color::Rgb(255, 165, 0) // Orange
+    } else {
+        Color::Red
+    };
+
+    let mut bar_spans = vec![Span::raw("  ")];
+
+    // Filled portion
+    for _ in 0..filled_blocks {
+        bar_spans.push(Span::styled("█", Style::default().fg(bar_color)));
+    }
+
+    // Empty portion
+    for _ in 0..empty_blocks {
+        bar_spans.push(Span::styled("█", Style::default().fg(Color::Rgb(40, 40, 40))));
+    }
+
+    bar_spans.push(Span::raw(format!("  {}/30", activity_level)));
+    lines.push(Line::from(bar_spans));
+
+    lines.push(Line::from(""));
+
+    // Status indicator
+    let (status_icon, status_text, status_color) = if days_since_pushed == 0 {
+        ("🔥", "Active today - Very active!", Color::Green)
+    } else if days_since_pushed < 7 {
+        ("✅", "Active this week - Healthy", Color::Green)
+    } else if days_since_pushed < 30 {
+        ("✓", "Active this month - Good", Color::Rgb(154, 205, 50))
+    } else if days_since_pushed < 90 {
+        ("○", "Updated within 3 months - Moderate", Color::Yellow)
+    } else if days_since_pushed < 180 {
+        ("⚠", "Last updated 3-6 months ago - Stale", Color::Rgb(255, 165, 0))
+    } else if days_since_pushed < 365 {
+        ("⏸", "Last updated 6-12 months ago - Inactive", Color::Red)
+    } else {
+        ("💀", "No activity for over a year - Abandoned", Color::Red)
+    };
+
+    lines.push(Line::from(vec![
+        Span::styled(format!("  {} ", status_icon), Style::default()),
+        Span::styled(status_text, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+    ]));
+
+    // Community engagement
+    if repo.stars > 0 || repo.forks > 0 {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("Community Engagement:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]));
+
+        let engagement_score = (repo.stars / 100).min(10) + (repo.forks / 20).min(5);
+        let engagement_bars = engagement_score.min(15);
+
+        let mut engagement_spans = vec![Span::raw("  ")];
+        for _ in 0..engagement_bars {
+            engagement_spans.push(Span::styled("█", Style::default().fg(Color::Magenta)));
+        }
+        for _ in engagement_bars..15 {
+            engagement_spans.push(Span::styled("█", Style::default().fg(Color::Rgb(40, 40, 40))));
+        }
+        engagement_spans.push(Span::styled(
+            format!("  ⭐ {} | 🍴 {}", repo.stars, repo.forks),
+            Style::default().fg(Color::DarkGray),
+        ));
+
+        lines.push(Line::from(engagement_spans));
+    }
+
     lines
+}
+
+// Helper function to format duration in a friendly way
+fn format_duration_friendly(days: i64) -> String {
+    if days == 0 {
+        "Today".to_string()
+    } else if days == 1 {
+        "1 day ago".to_string()
+    } else if days < 7 {
+        format!("{} days ago", days)
+    } else if days < 30 {
+        let weeks = days / 7;
+        if weeks == 1 {
+            "1 week ago".to_string()
+        } else {
+            format!("{} weeks ago", weeks)
+        }
+    } else if days < 365 {
+        let months = days / 30;
+        if months == 1 {
+            "1 month ago".to_string()
+        } else {
+            format!("{} months ago", months)
+        }
+    } else {
+        let years = days / 365;
+        if years == 1 {
+            "1 year ago".to_string()
+        } else {
+            format!("{} years ago", years)
+        }
+    }
+}
+
+// Helper to get color based on how fresh/stale the date is
+fn get_freshness_color(days: i64) -> Color {
+    if days < 7 {
+        Color::Green
+    } else if days < 30 {
+        Color::Rgb(154, 205, 50) // Yellow-green
+    } else if days < 90 {
+        Color::Yellow
+    } else if days < 180 {
+        Color::Rgb(255, 165, 0) // Orange
+    } else {
+        Color::Red
+    }
 }
