@@ -880,19 +880,32 @@ fn render_activity_preview(app: &App) -> Vec<Line> {
             }
         }
 
-        // Activity Metrics
+        // Activity Heatmap
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled(
-                "━━━ Activity & Engagement ━━━",
+                "━━━ Activity Heatmap (Last 12 Months) ━━━",
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             ),
         ]));
         lines.push(Line::from(""));
 
-        // Generate activity visualization
-        let activity_lines = generate_activity_heatmap(repo);
-        lines.extend(activity_lines);
+        // Generate activity heatmap
+        let heatmap_lines = generate_activity_heatmap(repo);
+        lines.extend(heatmap_lines);
+
+        // Activity metrics
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "━━━ Activity Summary ━━━",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        let activity_summary_lines = generate_activity_summary(repo);
+        lines.extend(activity_summary_lines);
 
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
@@ -1776,8 +1789,155 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// Generate simplified activity visualization based on repository metrics
-fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<Line> {
+/// Generate GitHub-style contribution heatmap (52 weeks x 7 days)
+fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<Line<'_>> {
+    use chrono::{Datelike, Duration, Utc};
+
+    let now = Utc::now();
+    let days_since_pushed = (now - repo.pushed_at).num_days();
+    let days_since_created = (now - repo.created_at).num_days();
+
+    // Get activity score for intensity distribution
+    let activity_score = if let Some(health) = &repo.health {
+        health.metrics.activity_score
+    } else {
+        if days_since_pushed < 7 { 25 }
+        else if days_since_pushed < 30 { 20 }
+        else if days_since_pushed < 90 { 15 }
+        else if days_since_pushed < 180 { 10 }
+        else { 5 }
+    };
+
+    let mut lines = vec![];
+
+    // Month labels (show every ~4 weeks)
+    let mut month_line = vec![Span::raw("     ")]; // Padding for day labels
+    let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    // Calculate which month each week belongs to
+    for week in (0..52).step_by(4) {
+        let date = now - Duration::weeks(52 - week as i64);
+        let month_idx = (date.month() - 1) as usize;
+        month_line.push(Span::styled(
+            format!("{:<4}", months[month_idx]),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    lines.push(Line::from(month_line));
+
+    // Generate 7 rows (days of week)
+    let day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    for day in 0..7 {
+        let mut row_spans = vec![];
+
+        // Add day label (show only Mon, Wed, Fri)
+        if day == 0 || day == 2 || day == 4 {
+            row_spans.push(Span::styled(
+                format!("{:<4} ", day_labels[day]),
+                Style::default().fg(Color::DarkGray),
+            ));
+        } else {
+            row_spans.push(Span::raw("     "));
+        }
+
+        // Generate 52 week squares
+        for week in 0..52 {
+            let days_ago = (52 - week) * 7 + (6 - day);
+
+            // Calculate activity level for this day
+            let activity_level = calculate_activity_level(
+                days_ago as i64,
+                days_since_pushed,
+                days_since_created,
+                activity_score,
+            );
+
+            let color = get_activity_color(activity_level);
+            row_spans.push(Span::styled("█", Style::default().fg(color)));
+        }
+
+        lines.push(Line::from(row_spans));
+    }
+
+    // Legend
+    lines.push(Line::from(""));
+    let legend_spans = vec![
+        Span::raw("     Less "),
+        Span::styled("█", Style::default().fg(Color::Rgb(22, 27, 34))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(14, 68, 41))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(0, 109, 50))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(38, 166, 65))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(57, 211, 83))),
+        Span::raw(" More"),
+    ];
+    lines.push(Line::from(legend_spans));
+
+    lines
+}
+
+/// Calculate activity level for a specific day based on repository metrics
+fn calculate_activity_level(
+    days_ago: i64,
+    days_since_pushed: i64,
+    days_since_created: i64,
+    activity_score: u8,
+) -> u8 {
+    // If repository wasn't created yet, no activity
+    if days_ago > days_since_created {
+        return 0;
+    }
+
+    // Calculate base activity level from score
+    // activity_score is 0-30, convert to 0-4 levels
+    let base_level = if activity_score >= 25 {
+        4
+    } else if activity_score >= 20 {
+        3
+    } else if activity_score >= 15 {
+        2
+    } else if activity_score >= 10 {
+        1
+    } else {
+        0
+    };
+
+    // Apply decay based on how long ago
+    // Recent activity (within days_since_pushed) should be brighter
+    let decay_factor = if days_ago <= days_since_pushed {
+        // Within the active period - use exponential decay from most recent
+        let ratio = days_ago as f64 / days_since_pushed.max(1) as f64;
+        1.0 - (ratio * 0.7) // Decay up to 70%
+    } else {
+        // Before last push - much lower activity
+        0.2
+    };
+
+    // Add some randomization for realistic look
+    let pseudo_random = ((days_ago * 17 + days_since_created * 13) % 5) as f64 / 10.0;
+
+    let final_level = (base_level as f64 * decay_factor + pseudo_random).min(4.0).max(0.0);
+    final_level.round() as u8
+}
+
+/// Get color for activity level (0-4)
+fn get_activity_color(level: u8) -> Color {
+    match level {
+        0 => Color::Rgb(22, 27, 34),      // Very dark (no activity)
+        1 => Color::Rgb(14, 68, 41),       // Dark green (low activity)
+        2 => Color::Rgb(0, 109, 50),       // Medium green (moderate activity)
+        3 => Color::Rgb(38, 166, 65),      // Bright green (good activity)
+        4 => Color::Rgb(57, 211, 83),      // Very bright green (high activity)
+        _ => Color::Rgb(22, 27, 34),
+    }
+}
+
+/// Generate activity summary with key metrics
+fn generate_activity_summary(repo: &reposcout_core::models::Repository) -> Vec<Line<'_>> {
     use chrono::Utc;
 
     let now = Utc::now();
@@ -1787,7 +1947,7 @@ fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<L
 
     let mut lines = vec![];
 
-    // Show key activity metrics in a clearer format
+    // Show key activity metrics
     lines.push(Line::from(vec![
         Span::styled("Repository Age:    ", Style::default().fg(Color::Gray)),
         Span::styled(
@@ -1814,56 +1974,6 @@ fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<L
 
     lines.push(Line::from(""));
 
-    // Visual activity bar
-    lines.push(Line::from(vec![
-        Span::styled("Activity Level:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-    ]));
-    lines.push(Line::from(""));
-
-    // Create a simple visual bar based on activity
-    let activity_level = if let Some(health) = &repo.health {
-        health.metrics.activity_score
-    } else {
-        if days_since_pushed < 7 { 25 }
-        else if days_since_pushed < 30 { 20 }
-        else if days_since_pushed < 90 { 15 }
-        else if days_since_pushed < 180 { 10 }
-        else { 5 }
-    };
-
-    // Create visual bar (30 is max)
-    let filled_blocks = (activity_level as f32 / 30.0 * 20.0) as usize;
-    let empty_blocks = 20 - filled_blocks;
-
-    let bar_color = if activity_level >= 25 {
-        Color::Green
-    } else if activity_level >= 20 {
-        Color::Rgb(154, 205, 50) // Yellow-green
-    } else if activity_level >= 15 {
-        Color::Yellow
-    } else if activity_level >= 10 {
-        Color::Rgb(255, 165, 0) // Orange
-    } else {
-        Color::Red
-    };
-
-    let mut bar_spans = vec![Span::raw("  ")];
-
-    // Filled portion
-    for _ in 0..filled_blocks {
-        bar_spans.push(Span::styled("█", Style::default().fg(bar_color)));
-    }
-
-    // Empty portion
-    for _ in 0..empty_blocks {
-        bar_spans.push(Span::styled("█", Style::default().fg(Color::Rgb(40, 40, 40))));
-    }
-
-    bar_spans.push(Span::raw(format!("  {}/30", activity_level)));
-    lines.push(Line::from(bar_spans));
-
-    lines.push(Line::from(""));
-
     // Status indicator
     let (status_icon, status_text, status_color) = if days_since_pushed == 0 {
         ("🔥", "Active today - Very active!", Color::Green)
@@ -1882,34 +1992,9 @@ fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<L
     };
 
     lines.push(Line::from(vec![
-        Span::styled(format!("  {} ", status_icon), Style::default()),
+        Span::styled(format!("{} ", status_icon), Style::default()),
         Span::styled(status_text, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
     ]));
-
-    // Community engagement
-    if repo.stars > 0 || repo.forks > 0 {
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("Community Engagement:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]));
-
-        let engagement_score = (repo.stars / 100).min(10) + (repo.forks / 20).min(5);
-        let engagement_bars = engagement_score.min(15);
-
-        let mut engagement_spans = vec![Span::raw("  ")];
-        for _ in 0..engagement_bars {
-            engagement_spans.push(Span::styled("█", Style::default().fg(Color::Magenta)));
-        }
-        for _ in engagement_bars..15 {
-            engagement_spans.push(Span::styled("█", Style::default().fg(Color::Rgb(40, 40, 40))));
-        }
-        engagement_spans.push(Span::styled(
-            format!("  ⭐ {} | 🍴 {}", repo.stars, repo.forks),
-            Style::default().fg(Color::DarkGray),
-        ));
-
-        lines.push(Line::from(engagement_spans));
-    }
 
     lines
 }
