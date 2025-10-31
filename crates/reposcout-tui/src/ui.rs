@@ -142,8 +142,17 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
     }
 
-    let platforms = vec![Line::from(platform_spans)];
-    let platforms_widget = Paragraph::new(platforms)
+    let mut platform_lines = vec![Line::from(platform_spans)];
+
+    // Add subtle warning for Bitbucket if not configured
+    if !app.platform_status.bitbucket_configured {
+        platform_lines.push(Line::from(vec![
+            Span::styled("⚠ ", Style::default().fg(Color::Yellow)),
+            Span::styled("Set BITBUCKET_USERNAME & BITBUCKET_APP_PASSWORD", Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+
+    let platforms_widget = Paragraph::new(platform_lines)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default())
         .alignment(ratatui::layout::Alignment::Center);
@@ -790,6 +799,20 @@ fn render_activity_preview(app: &App) -> Vec<Line> {
             }
         }
 
+        // Activity Heatmap (GitHub-style)
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "Activity Heatmap (Last 12 Months)",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        // Generate heatmap based on repository activity
+        let heatmap_lines = generate_activity_heatmap(repo);
+        lines.extend(heatmap_lines);
+
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled(
@@ -1157,22 +1180,6 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let status = if let Some(error) = &app.error_message {
         vec![Span::styled(error, Style::default().fg(Color::Red))]
-    } else if !app.platform_status.bitbucket_configured {
-        // Show warning about missing Bitbucket credentials
-        vec![
-            Span::styled("⚠ Bitbucket credentials not available ", Style::default().fg(Color::Yellow)),
-            Span::styled("(set BITBUCKET_USERNAME and BITBUCKET_APP_PASSWORD) ", Style::default().fg(Color::DarkGray)),
-            Span::raw("| "),
-            match app.input_mode {
-                InputMode::Searching => {
-                    Span::styled("SEARCH MODE | ESC: normal | ENTER: search", Style::default().fg(Color::Cyan))
-                }
-                InputMode::Normal => {
-                    Span::raw("j/k: navigate | /: search | q: quit")
-                }
-                _ => Span::raw(""),
-            }
-        ]
     } else {
         vec![match app.input_mode {
             InputMode::Searching => {
@@ -1686,4 +1693,133 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
 
         frame.render_widget(help, help_area);
     }
+}
+
+/// Generate GitHub-style activity heatmap
+fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<Line> {
+    use chrono::{Datelike, Duration, Utc};
+
+    let now = Utc::now();
+    let one_year_ago = now - Duration::days(365);
+
+    // Calculate repository age in days
+    let repo_age_days = (now - repo.created_at).num_days();
+    let days_since_last_push = (now - repo.pushed_at).num_days();
+
+    // Determine activity level based on health metrics and push date
+    let activity_level = if let Some(health) = &repo.health {
+        // Use activity score to determine intensity
+        health.metrics.activity_score
+    } else {
+        // Fallback: estimate from days since push
+        if days_since_last_push < 7 { 25 }
+        else if days_since_last_push < 30 { 20 }
+        else if days_since_last_push < 90 { 15 }
+        else if days_since_last_push < 180 { 10 }
+        else { 5 }
+    };
+
+    let mut lines = vec![];
+
+    // Month labels (condensed)
+    let months = ["Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"];
+    let mut month_spans = vec![Span::raw("     ")]; // Indent for day labels
+    for month in &months {
+        month_spans.push(Span::styled(
+            format!("{:>5}", month),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    lines.push(Line::from(month_spans));
+
+    // Generate heatmap for Mon/Wed/Fri pattern
+    let days_of_week = ["Mon", "Wed", "Fri"];
+
+    for day in &days_of_week {
+        let mut day_spans = vec![
+            Span::styled(
+                format!("{:>3}  ", day),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ];
+
+        // Generate ~52 weeks worth of squares (one per week for the year)
+        for week in 0..52 {
+            let color = if repo_age_days < (365 - week * 7) {
+                // Repository didn't exist yet
+                Color::Rgb(22, 27, 34) // Dark background
+            } else if days_since_last_push < 30 && week > 48 {
+                // Recent activity in last month
+                Color::Rgb(57, 211, 83) // Bright green
+            } else if days_since_last_push < 90 && week > 39 {
+                // Activity in last 3 months
+                Color::Rgb(48, 161, 78) // Medium green
+            } else if days_since_last_push < 180 && week > 26 {
+                // Activity in last 6 months
+                Color::Rgb(38, 128, 68) // Dark green
+            } else if activity_level > 15 && week > 40 {
+                // High activity score, recent weeks
+                Color::Rgb(64, 196, 99) // Greenish
+            } else if activity_level > 10 {
+                // Moderate activity
+                Color::Rgb(33, 110, 57) // Darker green
+            } else {
+                // Low/no activity
+                Color::Rgb(22, 27, 34) // Very dark
+            };
+
+            day_spans.push(Span::styled(
+                "█ ",
+                Style::default().fg(color),
+            ));
+        }
+
+        lines.push(Line::from(day_spans));
+    }
+
+    // Activity legend
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::raw("  Less "),
+        Span::styled("█", Style::default().fg(Color::Rgb(22, 27, 34))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(33, 110, 57))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(38, 128, 68))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(48, 161, 78))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(57, 211, 83))),
+        Span::styled(" More", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    // Activity summary
+    lines.push(Line::from(""));
+    let activity_summary = if days_since_last_push == 0 {
+        "🔥 Active today"
+    } else if days_since_last_push < 7 {
+        "✓ Active this week"
+    } else if days_since_last_push < 30 {
+        "○ Active this month"
+    } else if days_since_last_push < 90 {
+        "⏸ Last activity 3 months ago"
+    } else if days_since_last_push < 180 {
+        "⚠ Last activity 6 months ago"
+    } else {
+        "💀 Inactive for over 6 months"
+    };
+
+    lines.push(Line::from(vec![
+        Span::styled("  ", Style::default()),
+        Span::styled(
+            activity_summary,
+            Style::default().fg(
+                if days_since_last_push < 30 { Color::Green }
+                else if days_since_last_push < 90 { Color::Yellow }
+                else { Color::Red }
+            ),
+        ),
+    ]));
+
+    lines
 }
