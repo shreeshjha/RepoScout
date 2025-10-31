@@ -35,8 +35,12 @@ impl CachedSearchEngine {
         if let Some(cache) = &self.cache {
             debug!("Checking cache for query: {}", query);
             match cache.search::<Repository>(query, 100) {
-                Ok(results) if !results.is_empty() => {
+                Ok(mut results) if !results.is_empty() => {
                     info!("Cache hit! Found {} results", results.len());
+                    // Calculate health metrics for cached results
+                    for repo in &mut results {
+                        repo.calculate_health();
+                    }
                     return Ok(results);
                 }
                 Ok(_) => debug!("Cache miss - no results"),
@@ -46,7 +50,12 @@ impl CachedSearchEngine {
 
         // Cache miss - hit the APIs
         info!("Fetching from providers");
-        let results = self.search_providers(query).await?;
+        let mut results = self.search_providers(query).await?;
+
+        // Calculate health metrics for all results
+        for repo in &mut results {
+            repo.calculate_health();
+        }
 
         // Store results in cache
         if let Some(cache) = &self.cache {
@@ -70,8 +79,9 @@ impl CachedSearchEngine {
             debug!("Checking cache for repository: {}", full_name);
             // Try all platforms since we don't know which one it's from
             for platform in &["GitHub", "GitLab", "Bitbucket"] {
-                if let Ok(repo) = cache.get::<Repository>(platform, &full_name) {
+                if let Ok(mut repo) = cache.get::<Repository>(platform, &full_name) {
                     info!("Cache hit for {}", full_name);
+                    repo.calculate_health();
                     return Ok(repo);
                 }
             }
@@ -83,7 +93,9 @@ impl CachedSearchEngine {
 
         for provider in &self.providers {
             match provider.get_repository(owner, name).await {
-                Ok(repo) => {
+                Ok(mut repo) => {
+                    // Calculate health metrics
+                    repo.calculate_health();
                     // Cache it
                     if let Some(cache) = &self.cache {
                         if let Err(e) = cache.set(&repo.platform.to_string(), &full_name, &repo) {

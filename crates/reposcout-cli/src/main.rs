@@ -58,6 +58,10 @@ enum Commands {
         /// Sort by: stars, forks, updated (default: stars)
         #[arg(short = 's', long, default_value = "stars")]
         sort: String,
+
+        /// Export results to file (format detected from extension: .json, .csv, .md)
+        #[arg(short = 'o', long)]
+        export: Option<String>,
     },
     /// Search for code within repositories
     Code {
@@ -202,6 +206,7 @@ async fn main() -> anyhow::Result<()> {
             max_stars,
             pushed,
             sort,
+            export,
         }) => {
             search_repositories(
                 &query,
@@ -211,6 +216,7 @@ async fn main() -> anyhow::Result<()> {
                 max_stars,
                 pushed,
                 &sort,
+                export,
                 cli.github_token,
                 cli.gitlab_token,
                 cli.bitbucket_username,
@@ -271,6 +277,7 @@ async fn search_repositories(
     max_stars: Option<u32>,
     pushed: Option<String>,
     sort: &str,
+    export: Option<String>,
     github_token: Option<String>,
     gitlab_token: Option<String>,
     bitbucket_username: Option<String>,
@@ -307,6 +314,18 @@ async fn search_repositories(
         return Ok(());
     }
 
+    // Handle export if requested
+    if let Some(export_path) = export {
+        use reposcout_core::Exporter;
+
+        // Export all results (not limited by display limit)
+        Exporter::export_to_file(&results, &export_path)
+            .map_err(|e| anyhow::anyhow!("Export failed: {}", e))?;
+
+        println!("✓ Exported {} repositories to {}", results.len(), export_path);
+        return Ok(());
+    }
+
     println!("\nFound {} repositories:\n", results.len());
 
     for (i, repo) in results.iter().take(limit).enumerate() {
@@ -314,10 +333,19 @@ async fn search_repositories(
         if let Some(desc) = &repo.description {
             println!("   {}", desc);
         }
-        println!("   ⭐ {} | 🍴 {} | {}",
+
+        // Show health indicator if available
+        let health_indicator = if let Some(health) = &repo.health {
+            format!(" {} {}", health.status.emoji(), health.maintenance.label())
+        } else {
+            String::new()
+        };
+
+        println!("   ⭐ {} | 🍴 {} | {}{}",
             repo.stars,
             repo.forks,
-            repo.language.as_deref().unwrap_or("Unknown")
+            repo.language.as_deref().unwrap_or("Unknown"),
+            health_indicator
         );
         println!("   {}\n", repo.url);
     }

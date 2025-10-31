@@ -262,7 +262,7 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(&repo.full_name, name_style),
             ]);
 
-            // Line 2: Language + Platform + Updated (MUTED secondary info)
+            // Line 2: Language + Platform + Updated + Health (MUTED secondary info)
             let lang_display = repo.language.as_deref().unwrap_or("Unknown");
             let days_ago = (chrono::Utc::now() - repo.updated_at).num_days();
             let updated_display = if days_ago == 0 {
@@ -277,7 +277,7 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
                 format!("{}y ago", days_ago / 365)
             };
 
-            let line2 = Line::from(vec![
+            let mut line2_spans = vec![
                 Span::raw("     "), // Indent
                 Span::styled("●", Style::default().fg(Color::Rgb(147, 112, 219))), // Medium purple
                 Span::raw(" "),
@@ -289,7 +289,25 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
                 ),
                 Span::raw("  •  "),
                 Span::styled(updated_display, Style::default().fg(Color::Rgb(128, 128, 128))), // Medium gray
-            ]);
+            ];
+
+            // Add health indicator if available
+            if let Some(health) = &repo.health {
+                let health_color = match health.status {
+                    reposcout_core::HealthStatus::Healthy => Color::Green,
+                    reposcout_core::HealthStatus::Moderate => Color::Yellow,
+                    reposcout_core::HealthStatus::Warning => Color::Rgb(255, 165, 0), // Orange
+                    reposcout_core::HealthStatus::Critical => Color::Red,
+                };
+
+                line2_spans.push(Span::raw("  •  "));
+                line2_spans.push(Span::styled(
+                    format!("{} {}", health.status.emoji(), health.maintenance.label()),
+                    Style::default().fg(health_color),
+                ));
+            }
+
+            let line2 = Line::from(line2_spans);
 
             // Line 3: Description (VERY MUTED so it doesn't compete with name)
             // Use char_indices() to safely truncate at character boundaries
@@ -521,6 +539,92 @@ fn render_stats_preview(app: &App) -> Vec<Line> {
                 Style::default().fg(Color::Gray),
             ),
         ]));
+
+        // Health Metrics Section
+        if let Some(health) = &repo.health {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("━━━ Health Metrics ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            ]));
+            lines.push(Line::from(""));
+
+            // Overall health score
+            let health_color = match health.status {
+                reposcout_core::HealthStatus::Healthy => Color::Green,
+                reposcout_core::HealthStatus::Moderate => Color::Yellow,
+                reposcout_core::HealthStatus::Warning => Color::Rgb(255, 165, 0),
+                reposcout_core::HealthStatus::Critical => Color::Red,
+            };
+
+            lines.push(Line::from(vec![
+                Span::raw("💚 Health:    "),
+                Span::styled(
+                    format!("{} {} ({}/100)", health.status.emoji(), health.status.label(), health.score),
+                    Style::default().fg(health_color).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("🔧 Maintenance: "),
+                Span::styled(
+                    format!("{} {}", health.maintenance.emoji(), health.maintenance.label()),
+                    Style::default().fg(health_color),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("   {}", health.maintenance.description()),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+
+            // Detailed scores breakdown
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("Detailed Scores:", Style::default().fg(Color::Gray)),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Activity:      "),
+                Span::styled(
+                    format!("{}/30", health.metrics.activity_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Community:     "),
+                Span::styled(
+                    format!("{}/25", health.metrics.community_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Responsiveness:"),
+                Span::styled(
+                    format!("{}/20", health.metrics.responsiveness_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Maturity:      "),
+                Span::styled(
+                    format!("{}/15", health.metrics.maturity_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Documentation: "),
+                Span::styled(
+                    format!("{}/10", health.metrics.documentation_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+        }
 
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
