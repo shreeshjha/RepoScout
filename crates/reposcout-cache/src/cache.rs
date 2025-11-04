@@ -103,6 +103,26 @@ impl CacheManager {
             [],
         )?;
 
+        // Create query cache table
+        // Stores complete search results for exact queries to avoid FTS5 cross-contamination
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS query_cache (
+                id INTEGER PRIMARY KEY,
+                query_hash TEXT NOT NULL UNIQUE,
+                query TEXT NOT NULL,
+                results TEXT NOT NULL,
+                cached_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // Create index for efficient lookup by query hash
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_query_cache_hash
+             ON query_cache(query_hash)",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -243,21 +263,38 @@ impl CacheManager {
 
     /// Get cache statistics
     pub fn stats(&self) -> Result<CacheStats> {
-        let total: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM repositories", [], |row| row.get(0))?;
-
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
         let cutoff = now - self.ttl_seconds;
 
+        // Repository cache stats
+        let total: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM repositories", [], |row| row.get(0))?;
+
         let expired: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM repositories WHERE cached_at < ?1",
             params![cutoff],
             |row| row.get(0),
         )?;
+
+        // Query cache stats
+        let query_total: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM query_cache", [], |row| row.get(0))?;
+
+        let query_expired: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM query_cache WHERE cached_at < ?1",
+            params![cutoff],
+            |row| row.get(0),
+        )?;
+
+        // Bookmarks count
+        let bookmarks: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM bookmarks", [], |row| row.get(0))?;
 
         // Get database file size
         let page_count: i64 = self
@@ -272,6 +309,9 @@ impl CacheManager {
             total_entries: total as usize,
             expired_entries: expired as usize,
             valid_entries: (total - expired) as usize,
+            query_cache_entries: query_total as usize,
+            query_cache_expired: query_expired as usize,
+            bookmarks_count: bookmarks as usize,
             size_bytes: size_bytes as usize,
         })
     }
@@ -498,6 +538,89 @@ impl CacheManager {
             .query_row("SELECT COUNT(*) FROM search_history", [], |row| row.get(0))?;
         Ok(count as usize)
     }
+
+    // ===== Query Cache Methods =====
+
+    /// Generate a stable hash for a query string
+    fn hash_query(query: &str) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        query.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+
+    /// Get cached search results for an exact query
+    pub fn get_query_cache<T: for<'de> Deserialize<'de>>(&self, query: &str) -> Result<Vec<T>> {
+        let query_hash = Self::hash_query(query);
+
+        let (results_json, cached_at): (String, i64) = self
+            .conn
+            .query_row(
+                "SELECT results, cached_at FROM query_cache WHERE query_hash = ?1",
+                params![query_hash],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| CacheError::NotFound(query.to_string()))?;
+
+        // Check if entry is expired
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        if now - cached_at > self.ttl_seconds {
+            // Delete expired entry
+            self.conn.execute(
+                "DELETE FROM query_cache WHERE query_hash = ?1",
+                params![query_hash],
+            )?;
+            return Err(CacheError::Expired);
+        }
+
+        let results: Vec<T> = serde_json::from_str(&results_json)?;
+        Ok(results)
+    }
+
+    /// Store search results for a specific query
+    pub fn set_query_cache<T: Serialize>(&self, query: &str, results: &[T]) -> Result<()> {
+        let query_hash = Self::hash_query(query);
+        let results_json = serde_json::to_string(results)?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO query_cache (query_hash, query, results, cached_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![query_hash, query, results_json, now],
+        )?;
+
+        Ok(())
+    }
+
+    /// Clear all query cache entries
+    pub fn clear_query_cache(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM query_cache", [])?;
+        Ok(())
+    }
+
+    /// Clean up expired query cache entries
+    pub fn cleanup_expired_query_cache(&self) -> Result<usize> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let deleted = self.conn.execute(
+            "DELETE FROM query_cache WHERE cached_at < ?1",
+            params![now - self.ttl_seconds],
+        )?;
+
+        Ok(deleted)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -505,6 +628,9 @@ pub struct CacheStats {
     pub total_entries: usize,
     pub expired_entries: usize,
     pub valid_entries: usize,
+    pub query_cache_entries: usize,
+    pub query_cache_expired: usize,
+    pub bookmarks_count: usize,
     pub size_bytes: usize,
 }
 

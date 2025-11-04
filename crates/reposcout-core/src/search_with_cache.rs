@@ -31,25 +31,25 @@ impl CachedSearchEngine {
 
     /// Search with cache-first strategy
     pub async fn search(&self, query: &str) -> Result<Vec<Repository>> {
-        // Try cache first if available
+        // Try query-specific cache first if available
         if let Some(cache) = &self.cache {
-            debug!("Checking cache for query: {}", query);
-            match cache.search::<Repository>(query, 100) {
+            debug!("Checking query cache for: {}", query);
+            match cache.get_query_cache::<Repository>(query) {
                 Ok(mut results) if !results.is_empty() => {
-                    info!("Cache hit! Found {} results", results.len());
-                    // Calculate health metrics for cached results
+                    info!("Query cache hit! Found {} results", results.len());
+                    // Calculate health metrics for cached results (in case they were cached before health was added)
                     for repo in &mut results {
                         repo.calculate_health();
                     }
                     return Ok(results);
                 }
-                Ok(_) => debug!("Cache miss - no results"),
-                Err(e) => debug!("Cache error: {}", e),
+                Ok(_) => debug!("Query cache miss - no results"),
+                Err(e) => debug!("Query cache error: {}", e),
             }
         }
 
         // Cache miss - hit the APIs
-        info!("Fetching from providers");
+        info!("Fetching from providers for query: {}", query);
         let mut results = self.search_providers(query).await?;
 
         // Calculate health metrics for all results
@@ -57,14 +57,13 @@ impl CachedSearchEngine {
             repo.calculate_health();
         }
 
-        // Store results in cache
+        // Store results in query cache
         if let Some(cache) = &self.cache {
-            for repo in &results {
-                if let Err(e) = cache.set(&repo.platform.to_string(), &repo.full_name, repo) {
-                    debug!("Failed to cache {}: {}", repo.full_name, e);
-                }
+            if let Err(e) = cache.set_query_cache(query, &results) {
+                debug!("Failed to cache query results: {}", e);
+            } else {
+                info!("Cached {} repositories for query: {}", results.len(), query);
             }
-            info!("Cached {} repositories", results.len());
         }
 
         Ok(results)

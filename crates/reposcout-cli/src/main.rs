@@ -110,6 +110,66 @@ enum Commands {
     },
     /// Launch interactive TUI
     Tui,
+    /// Show trending repositories
+    Trending {
+        /// Time period: daily, weekly, monthly
+        #[arg(short = 'p', long, default_value = "weekly")]
+        period: String,
+
+        /// Filter by programming language (e.g., rust, python, go)
+        #[arg(short = 'l', long)]
+        language: Option<String>,
+
+        /// Minimum number of stars
+        #[arg(long, default_value = "100")]
+        min_stars: u32,
+
+        /// Filter by topic
+        #[arg(short = 't', long)]
+        topic: Option<String>,
+
+        /// Number of results to show
+        #[arg(short = 'n', long, default_value = "20")]
+        limit: usize,
+
+        /// Sort by star velocity (stars/day) instead of total stars
+        #[arg(short = 'v', long)]
+        velocity: bool,
+    },
+    /// Manage GitHub notifications
+    Notifications {
+        #[command(subcommand)]
+        action: NotificationAction,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum NotificationAction {
+    /// List notifications
+    List {
+        /// Show all notifications (not just unread)
+        #[arg(short = 'a', long)]
+        all: bool,
+
+        /// Show only participating notifications
+        #[arg(short = 'p', long)]
+        participating: bool,
+
+        /// Number of notifications to show
+        #[arg(short = 'n', long, default_value = "50")]
+        limit: u32,
+
+        /// Filter by repository (owner/repo)
+        #[arg(short = 'r', long)]
+        repo: Option<String>,
+    },
+    /// Mark a notification as read
+    MarkRead {
+        /// Notification thread ID
+        id: String,
+    },
+    /// Mark all notifications as read
+    MarkAllRead,
 }
 
 #[derive(clap::Subcommand)]
@@ -181,7 +241,19 @@ enum HistoryAction {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+
+    // Load tokens from secure storage if not provided via env/CLI
+    use reposcout_core::TokenStore;
+    if let Ok(store) = TokenStore::load() {
+        if cli.github_token.is_none() {
+            cli.github_token = store.get_token("github");
+        }
+        if cli.gitlab_token.is_none() {
+            cli.gitlab_token = store.get_token("gitlab");
+        }
+        // Note: Bitbucket uses username+password, not stored in TokenStore yet
+    }
 
     // Only initialize tracing for non-TUI commands to prevent log interference
     let is_tui_mode = matches!(cli.command, Some(Commands::Tui));
@@ -260,6 +332,31 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Tui) => {
             run_tui_mode(cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
+        }
+        Some(Commands::Trending {
+            period,
+            language,
+            min_stars,
+            topic,
+            limit,
+            velocity,
+        }) => {
+            show_trending(
+                &period,
+                language,
+                min_stars,
+                topic,
+                limit,
+                velocity,
+                cli.github_token,
+                cli.gitlab_token,
+                cli.bitbucket_username,
+                cli.bitbucket_app_password,
+            )
+            .await?;
+        }
+        Some(Commands::Notifications { action }) => {
+            handle_notifications(action, cli.github_token).await?;
         }
         None => {
             println!("No command specified. Try --help");
@@ -415,20 +512,30 @@ async fn handle_cache_command(action: CacheAction) -> anyhow::Result<()> {
     match action {
         CacheAction::Stats => {
             let stats = cache.stats()?;
-            println!("\nCache Statistics:\n");
-            println!("Total entries:   {}", stats.total_entries);
-            println!("Valid entries:   {}", stats.valid_entries);
-            println!("Expired entries: {}", stats.expired_entries);
-            println!("Cache size:      {} KB", stats.size_bytes / 1024);
-            println!("\nCache location:  {}", cache_path.display());
+            println!("\n📊 Cache Statistics:\n");
+            println!("Repository Cache:");
+            println!("  Total entries:   {}", stats.total_entries);
+            println!("  Valid entries:   {}", stats.valid_entries);
+            println!("  Expired entries: {}", stats.expired_entries);
+            println!("\nQuery Cache:");
+            println!("  Cached queries:  {}", stats.query_cache_entries);
+            println!("  Expired queries: {}", stats.query_cache_expired);
+            println!("  Valid queries:   {}", stats.query_cache_entries - stats.query_cache_expired);
+            println!("\nBookmarks:");
+            println!("  Total bookmarks: {}", stats.bookmarks_count);
+            println!("\nStorage:");
+            println!("  Database size:   {} KB", stats.size_bytes / 1024);
+            println!("  Location:        {}", cache_path.display());
         }
         CacheAction::Clear => {
             cache.clear()?;
+            cache.clear_query_cache()?;
             println!("✅ Cache cleared successfully");
         }
         CacheAction::Cleanup => {
-            let deleted = cache.cleanup_expired()?;
-            println!("✅ Cleaned up {} expired entries", deleted);
+            let deleted_repos = cache.cleanup_expired()?;
+            let deleted_queries = cache.cleanup_expired_query_cache()?;
+            println!("✅ Cleaned up {} expired repository entries and {} expired query cache entries", deleted_repos, deleted_queries);
         }
     }
 
@@ -765,9 +872,26 @@ fn sort_results(results: &mut [reposcout_core::models::Repository], sort_by: &st
     }
 }
 
-async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>, bitbucket_username: Option<String>, bitbucket_app_password: Option<String>) -> anyhow::Result<()> {
+async fn run_tui_mode(mut github_token: Option<String>, mut gitlab_token: Option<String>, bitbucket_username: Option<String>, bitbucket_app_password: Option<String>) -> anyhow::Result<()> {
     use reposcout_tui::{App, run_tui};
     use reposcout_api::{BitbucketClient, GitHubClient, GitLabClient};
+    use reposcout_core::TokenStore;
+
+    // Load tokens from secure storage if not provided via env/CLI
+    if let Ok(store) = TokenStore::load() {
+        if github_token.is_none() {
+            github_token = store.get_token("github");
+            if github_token.is_some() {
+                tracing::info!("Loaded GitHub token from secure storage");
+            }
+        }
+        if gitlab_token.is_none() {
+            gitlab_token = store.get_token("gitlab");
+            if gitlab_token.is_some() {
+                tracing::info!("Loaded GitLab token from secure storage");
+            }
+        }
+    }
 
     let mut app = App::new();
     let cache_path = get_cache_path()?;
@@ -794,6 +918,8 @@ async fn run_tui_mode(github_token: Option<String>, gitlab_token: Option<String>
         let cache_path_clone = cache_path_str.clone();
 
         Box::pin(async move {
+            // Use query-specific cache for accurate, fast results
+            // This avoids FTS5 cross-contamination by caching complete result sets per exact query
             let cache = CacheManager::new(&cache_path_clone, 24)?;
             let mut engine = CachedSearchEngine::with_cache(cache);
             // Search across all platforms
@@ -881,22 +1007,34 @@ async fn search_code(
                         platform: Platform::GitHub,
                         repository: item.repository.full_name.clone(),
                         file_path: item.path.clone(),
-                        language: item.repository.language.clone(),
+                        language: None, // Code search API doesn't return language
                         file_url: item.html_url.clone(),
                         repository_url: item.repository.html_url.clone(),
                         matches,
-                        repository_stars: item.repository.stargazers_count,
+                        repository_stars: 0, // Code search API doesn't return star count
                     });
                 }
                 tracing::info!("Found {} results from GitHub", all_results.len());
             }
             Err(e) => {
+                let error_str = e.to_string();
+                if error_str.contains("Authentication required") {
+                    eprintln!("❌ GitHub code search requires authentication.");
+                    eprintln!("   Set GITHUB_TOKEN environment variable or use --github-token flag.");
+                    eprintln!("   Example: export GITHUB_TOKEN=your_token_here\n");
+                } else if error_str.contains("Rate limit") {
+                    eprintln!("❌ GitHub API rate limit exceeded.");
+                    eprintln!("   Please wait a few minutes and try again.\n");
+                } else {
+                    eprintln!("❌ GitHub code search failed: {}\n", error_str);
+                }
                 tracing::warn!("GitHub code search failed: {}", e);
             }
         }
     } else {
-        println!("⚠️  GitHub token not provided. Set GITHUB_TOKEN or use --github-token");
-        println!("   Code search requires authentication on GitHub.\n");
+        eprintln!("⚠️  GitHub token not provided. Set GITHUB_TOKEN or use --github-token");
+        eprintln!("   Code search requires authentication on GitHub.");
+        eprintln!("   Example: export GITHUB_TOKEN=your_token_here\n");
     }
 
     // Search GitLab
@@ -928,9 +1066,24 @@ async fn search_code(
                 tracing::info!("Found {} total results (including GitLab)", all_results.len());
             }
             Err(e) => {
+                let error_str = e.to_string();
+                if error_str.contains("Authentication required") {
+                    eprintln!("❌ GitLab code search requires authentication.");
+                    eprintln!("   Set GITLAB_TOKEN environment variable or use --gitlab-token flag.");
+                    eprintln!("   Example: export GITLAB_TOKEN=your_token_here\n");
+                } else if error_str.contains("Rate limit") {
+                    eprintln!("❌ GitLab API rate limit exceeded.");
+                    eprintln!("   Please wait a few minutes and try again.\n");
+                } else {
+                    eprintln!("❌ GitLab code search failed: {}\n", error_str);
+                }
                 tracing::warn!("GitLab code search failed: {}", e);
             }
         }
+    } else {
+        eprintln!("⚠️  GitLab token not provided. Set GITLAB_TOKEN or use --gitlab-token");
+        eprintln!("   Code search on GitLab requires authentication.");
+        eprintln!("   Example: export GITLAB_TOKEN=your_token_here\n");
     }
 
     // Search Bitbucket
@@ -942,7 +1095,13 @@ async fn search_code(
 
     // Display results
     if all_results.is_empty() {
-        println!("No code matches found for '{}'", query);
+        if github_token.is_none() && gitlab_token.is_none() {
+            eprintln!("❌ No code matches found.");
+            eprintln!("   Note: Code search requires authentication. Please provide a GitHub or GitLab token.");
+        } else {
+            println!("No code matches found for '{}'", query);
+            println!("Try adjusting your search query or filters.");
+        }
         return Ok(());
     }
 
@@ -979,6 +1138,114 @@ async fn search_code(
     Ok(())
 }
 
+async fn show_trending(
+    period_str: &str,
+    language: Option<String>,
+    min_stars: u32,
+    topic: Option<String>,
+    limit: usize,
+    velocity: bool,
+    github_token: Option<String>,
+    gitlab_token: Option<String>,
+    bitbucket_username: Option<String>,
+    bitbucket_app_password: Option<String>,
+) -> anyhow::Result<()> {
+    use reposcout_core::{TrendingFilters, TrendingFinder, TrendingPeriod};
+
+    // Parse period
+    let period = match period_str.to_lowercase().as_str() {
+        "daily" | "day" | "today" => TrendingPeriod::Daily,
+        "weekly" | "week" => TrendingPeriod::Weekly,
+        "monthly" | "month" => TrendingPeriod::Monthly,
+        _ => {
+            anyhow::bail!("Invalid period. Use: daily, weekly, or monthly");
+        }
+    };
+
+    println!("\n🔥 Trending Repositories - {}\n", period.display_name());
+
+    // Create providers
+    let github_provider = GitHubProvider::new(github_token);
+    let gitlab_provider = GitLabProvider::new(gitlab_token);
+    let bitbucket_provider = BitbucketProvider::new(bitbucket_username, bitbucket_app_password);
+
+    // Create trending finder
+    let mut finder = TrendingFinder::new();
+    finder.add_provider(&github_provider);
+    finder.add_provider(&gitlab_provider);
+    finder.add_provider(&bitbucket_provider);
+
+    // Build filters
+    let filters = TrendingFilters {
+        language: language.clone(),
+        min_stars: Some(min_stars),
+        topic: topic.clone(),
+    };
+
+    // Find trending repos
+    let results = if velocity {
+        finder.find_trending_by_velocity(period, &filters).await?
+    } else {
+        finder.find_trending(period, &filters).await?
+    };
+
+    if results.is_empty() {
+        println!("No trending repositories found for the specified criteria.");
+        return Ok(());
+    }
+
+    println!("Found {} trending repositories:\n", results.len());
+
+    // Display filters if any
+    let mut filter_parts = Vec::new();
+    if let Some(ref lang) = language {
+        filter_parts.push(format!("Language: {}", lang));
+    }
+    if min_stars > 0 {
+        filter_parts.push(format!("Min Stars: {}", min_stars));
+    }
+    if let Some(ref t) = topic {
+        filter_parts.push(format!("Topic: {}", t));
+    }
+    if !filter_parts.is_empty() {
+        println!("Filters: {}\n", filter_parts.join(" | "));
+    }
+
+    if velocity {
+        println!("Sorted by: ⚡ Star Velocity (stars/day)\n");
+    } else {
+        println!("Sorted by: ⭐ Total Stars\n");
+    }
+
+    for (i, repo) in results.iter().take(limit).enumerate() {
+        // Calculate velocity for display
+        let age_days = (chrono::Utc::now() - repo.created_at).num_days().max(1);
+        let star_velocity = repo.stars as f64 / age_days as f64;
+
+        println!("{}. {} ({})", i + 1, repo.full_name, repo.platform);
+        if let Some(desc) = &repo.description {
+            let short_desc = if desc.len() > 100 {
+                format!("{}...", &desc[..100])
+            } else {
+                desc.clone()
+            };
+            println!("   {}", short_desc);
+        }
+
+        println!(
+            "   ⭐ {} | 🍴 {} | {} | ⚡ {:.1} stars/day | 📅 {} days old",
+            repo.stars,
+            repo.forks,
+            repo.language.as_deref().unwrap_or("Unknown"),
+            star_velocity,
+            age_days
+        );
+        println!("   {}\n", repo.url);
+    }
+
+    Ok(())
+}
+
 fn get_cache_path() -> anyhow::Result<PathBuf> {
     let cache_dir = if cfg!(target_os = "windows") {
         dirs::cache_dir()
@@ -992,4 +1259,69 @@ fn get_cache_path() -> anyhow::Result<PathBuf> {
 
     std::fs::create_dir_all(&cache_dir)?;
     Ok(cache_dir.join("reposcout.db"))
+}
+
+async fn handle_notifications(
+    action: NotificationAction,
+    github_token: Option<String>,
+) -> anyhow::Result<()> {
+    let github_token = github_token
+        .ok_or_else(|| anyhow::anyhow!("GitHub token required for notifications. Set GITHUB_TOKEN or use Ctrl+S in TUI to save token."))?;
+
+    let client = reposcout_api::GitHubClient::new(Some(github_token));
+
+    match action {
+        NotificationAction::List { all, participating, limit, repo } => {
+            let notifications = client.get_notifications(all, participating, limit).await?;
+
+            // Filter by repo if specified
+            let notifications: Vec<_> = if let Some(repo_filter) = repo {
+                notifications
+                    .into_iter()
+                    .filter(|n| n.repository.full_name == repo_filter)
+                    .collect()
+            } else {
+                notifications
+            };
+
+            if notifications.is_empty() {
+                println!("No notifications found.");
+                return Ok(());
+            }
+
+            println!("Found {} notification(s)\n", notifications.len());
+
+            for (i, notif) in notifications.iter().enumerate() {
+                let unread_marker = if notif.unread { "🔵" } else { "⚪" };
+                let reason = notif.reason.as_str();
+
+                println!("{}. {} {} - {}", i + 1, unread_marker, notif.subject.title, reason);
+                println!("   Repository: {}", notif.repository.full_name);
+                println!("   Type: {}", notif.subject.subject_type);
+                println!("   Updated: {}", notif.updated_at.format("%Y-%m-%d %H:%M:%S"));
+                println!("   ID: {}", notif.id);
+
+                if let Some(ref desc) = notif.repository.description {
+                    let short_desc = if desc.len() > 80 {
+                        format!("{}...", &desc[..80])
+                    } else {
+                        desc.clone()
+                    };
+                    println!("   {}", short_desc);
+                }
+
+                println!();
+            }
+        }
+        NotificationAction::MarkRead { id } => {
+            client.mark_notification_read(&id).await?;
+            println!("Marked notification {} as read", id);
+        }
+        NotificationAction::MarkAllRead => {
+            client.mark_all_notifications_read().await?;
+            println!("Marked all notifications as read");
+        }
+    }
+
+    Ok(())
 }

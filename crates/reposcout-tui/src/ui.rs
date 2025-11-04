@@ -87,6 +87,18 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             // Render code preview with syntax highlighting
             render_code_preview(frame, app, content_chunks[1]);
         }
+        SearchMode::Trending => {
+            // Render trending results (reuse repository results list)
+            render_results_list(frame, app, content_chunks[0]);
+            // Render preview pane
+            render_preview(frame, app, content_chunks[1]);
+        }
+        SearchMode::Notifications => {
+            // Render notifications list
+            render_notifications_list(frame, app, content_chunks[0]);
+            // Render notification details
+            render_notification_preview(frame, app, content_chunks[1]);
+        }
     }
 
     // Render fuzzy search overlay if active
@@ -97,6 +109,20 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Render history popup if active
     if app.input_mode == InputMode::HistoryPopup {
         render_history_popup(frame, app, frame.area());
+    }
+
+    // Render trending options if active
+    if app.show_trending_options && app.search_mode == SearchMode::Trending {
+        render_trending_options(frame, app, frame.area());
+    }
+
+    // Render settings/token popups if active
+    if app.show_settings || app.input_mode == InputMode::Settings || app.input_mode == InputMode::TokenInput {
+        if app.input_mode == InputMode::TokenInput {
+            render_token_input_popup(app, frame, frame.area());
+        } else {
+            render_settings_popup(app, frame, frame.area());
+        }
     }
 
     // Render status bar
@@ -151,16 +177,22 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         match app.search_mode {
             SearchMode::Repository => "Repo",
             SearchMode::Code => "Code",
+            SearchMode::Trending => "Trend",
+            SearchMode::Notifications => "Notif",
         }
     } else {
         match app.search_mode {
             SearchMode::Repository => "Repository Search",
             SearchMode::Code => "Code Search",
+            SearchMode::Trending => "Trending Repos",
+            SearchMode::Notifications => "Notifications",
         }
     };
     let mode_color = match app.search_mode {
         SearchMode::Repository => Color::Cyan,
         SearchMode::Code => Color::Green,
+        SearchMode::Trending => Color::Magenta,
+        SearchMode::Notifications => Color::Yellow,
     };
 
     // Build platform status indicators (adaptive based on width)
@@ -250,22 +282,56 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
 fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     let input_style = match app.input_mode {
         InputMode::Searching => Style::default().fg(Color::Yellow),
-        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch | InputMode::HistoryPopup => Style::default(),
+        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch | InputMode::HistoryPopup | InputMode::Settings | InputMode::TokenInput => Style::default(),
     };
 
-    let input = Paragraph::new(app.search_input.as_str())
+    // Different title and content based on search mode
+    let (title, content) = match app.search_mode {
+        SearchMode::Trending => {
+            if app.show_trending_options {
+                ("🔥 Trending (Options open - adjust filters)", "Press Enter to search with current filters".to_string())
+            } else {
+                ("🔥 Trending (Press 'o' for options, Enter to search)",
+                 format!("{} | {} | {}+ ⭐",
+                    app.trending_filters.period.display_name(),
+                    app.trending_filters.language.as_deref().unwrap_or("All languages"),
+                    app.trending_filters.min_stars))
+            }
+        }
+        SearchMode::Repository => {
+            ("Search (ESC to navigate, / to search)", app.search_input.as_str().to_string())
+        }
+        SearchMode::Code => {
+            ("Code Search (ESC to navigate, / to search)", app.search_input.as_str().to_string())
+        }
+        SearchMode::Notifications => {
+            let filter_info = if app.notifications_show_all {
+                "All"
+            } else {
+                "Unread"
+            };
+            let participating_info = if app.notifications_participating {
+                " | Participating"
+            } else {
+                ""
+            };
+            ("📬 Notifications", format!("{}{}", filter_info, participating_info))
+        }
+    };
+
+    let input = Paragraph::new(content)
         .style(input_style)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Search (ESC to navigate, / to search)")
+                .title(title)
                 .border_style(input_style),
         );
 
     frame.render_widget(input, area);
 
-    // Show cursor when in search mode
-    if app.input_mode == InputMode::Searching {
+    // Show cursor when in search mode (not trending)
+    if app.input_mode == InputMode::Searching && app.search_mode != SearchMode::Trending {
         frame.set_cursor_position((
             area.x + app.search_input.len() as u16 + 1,
             area.y + 1,
@@ -907,6 +973,88 @@ fn render_activity_preview(app: &App) -> Vec<Line> {
         let activity_summary_lines = generate_activity_summary(repo);
         lines.extend(activity_summary_lines);
 
+        // Add sparkline visualizations
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "━━━ Trend Sparklines ━━━",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        // Generate sparklines using repo data
+        let activity_sparkline = crate::sparkline::generate_activity_sparkline(
+            repo.created_at,
+            repo.pushed_at,
+            repo.stars,
+        );
+
+        let velocity_sparkline = crate::sparkline::generate_star_velocity_sparkline(
+            repo.created_at,
+            repo.stars,
+        );
+
+        let issue_sparkline = crate::sparkline::generate_issue_activity_sparkline(
+            repo.open_issues,
+            repo.stars,
+            repo.created_at,
+        );
+
+        // Display sparklines with labels
+        lines.push(Line::from(vec![
+            Span::raw("  ⚡ Activity Trend:  "),
+            Span::styled(
+                activity_sparkline,
+                Style::default().fg(Color::Green),
+            ),
+        ]));
+
+        lines.push(Line::from(vec![
+            Span::raw("  ⭐ Star Velocity:   "),
+            Span::styled(
+                velocity_sparkline,
+                Style::default().fg(Color::Yellow),
+            ),
+        ]));
+
+        lines.push(Line::from(vec![
+            Span::raw("  🔧 Issue Activity:  "),
+            Span::styled(
+                issue_sparkline,
+                Style::default().fg(Color::Magenta),
+            ),
+        ]));
+
+        // Add health trend if health metrics available
+        if let Some(health) = &repo.health {
+            let health_sparkline = crate::sparkline::generate_health_trend_sparkline(
+                health.score,
+            );
+
+            lines.push(Line::from(vec![
+                Span::raw("  💚 Health Trend:    "),
+                Span::styled(
+                    health_sparkline,
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "  Each bar represents a time period (12 total)",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "  ▁▂▃▄▅▆▇█ = Low to High activity",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            ),
+        ]));
+
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled(
@@ -1291,18 +1439,30 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             InputMode::HistoryPopup => {
                 Span::styled("HISTORY | j/k: navigate | ENTER: select | ESC: close", Style::default().fg(Color::Cyan))
             }
+            InputMode::Settings => {
+                Span::styled("SETTINGS | j/k: navigate | ENTER: select platform | ESC: close", Style::default().fg(Color::Cyan))
+            }
+            InputMode::TokenInput => {
+                Span::styled("TOKEN INPUT | Type token | ENTER: save | ESC: cancel", Style::default().fg(Color::Yellow))
+            }
             InputMode::Normal => {
                 use crate::PreviewMode;
                 match app.search_mode {
                     SearchMode::Code => {
-                        Span::raw("j/k: navigate | /: search | Ctrl+R: history | M: switch mode | TAB: scroll | ENTER: open | q: quit")
+                        Span::raw("j/k: navigate | /: search | Ctrl+R: history | Ctrl+S: settings | M: switch mode | TAB: scroll | ENTER: open | q: quit")
                     }
                     SearchMode::Repository => {
                         if app.preview_mode == PreviewMode::Readme {
-                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
+                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | Ctrl+S: settings | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
                         } else {
-                            Span::raw("j/k: navigate | /: search | Ctrl+R: history | f: fuzzy | F: filters | M: switch mode | TAB: tabs | b: bookmark | B: view | ENTER: open | q: quit")
+                            Span::raw("j/k: navigate | /: search | Ctrl+R: history | Ctrl+S: settings | f: fuzzy | F: filters | M: mode | TAB: tabs | b: bookmark | q: quit")
                         }
+                    }
+                    SearchMode::Trending => {
+                        Span::styled("o: options | ENTER: search | j/k: navigate | Ctrl+S: settings | M: mode | TAB: tabs | q: quit", Style::default().fg(Color::Magenta))
+                    }
+                    SearchMode::Notifications => {
+                        Span::styled("j/k: navigate | m: mark read | a: mark all | f: filter | p: participating | ENTER: open | M: mode | q: quit", Style::default().fg(Color::Yellow))
                     }
                 }
             }
@@ -1999,6 +2159,138 @@ fn generate_activity_summary(repo: &reposcout_core::models::Repository) -> Vec<L
     lines
 }
 
+fn render_trending_options(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::app::TrendingPeriod;
+
+    // Create centered popup
+    let popup_width = 60.min(area.width - 4);
+    let popup_height = 18.min(area.height - 4);
+
+    let popup_area = Rect {
+        x: (area.width.saturating_sub(popup_width)) / 2,
+        y: (area.height.saturating_sub(popup_height)) / 2,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    // Clear the popup area
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" 🔥 Trending Options (Enter to search, Tab to switch field, Esc to close) ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta));
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let filters = &app.trending_filters;
+
+    // Build options list
+    let mut lines = vec![];
+
+    // Period
+    let period_style = if app.trending_option_cursor == 0 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Period: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!("{} ", filters.period.display_name()),
+            period_style,
+        ),
+        Span::styled("(Space to toggle)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("    ", Style::default()),
+        Span::styled(
+            match filters.period {
+                TrendingPeriod::Daily => "→ Last 24 hours",
+                TrendingPeriod::Weekly => "→ Last 7 days",
+                TrendingPeriod::Monthly => "→ Last 30 days",
+            },
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]));
+
+    // Language
+    let lang_style = if app.trending_option_cursor == 1 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Language: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            filters.language.as_deref().unwrap_or("All"),
+            lang_style,
+        ),
+        Span::styled(" (Type to edit, Backspace to clear)", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    // Min Stars
+    let stars_style = if app.trending_option_cursor == 2 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Min Stars: ", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{}", filters.min_stars), stars_style),
+        Span::styled(" (+/- to adjust)", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    // Topic
+    let topic_style = if app.trending_option_cursor == 3 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Topic: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            filters.topic.as_deref().unwrap_or("None"),
+            topic_style,
+        ),
+        Span::styled(" (Type to edit, Backspace to clear)", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    // Sort by velocity
+    let velocity_style = if app.trending_option_cursor == 4 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Sort by Velocity: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            if filters.sort_by_velocity { "Yes ⚡" } else { "No" },
+            velocity_style,
+        ),
+        Span::styled(" (Space to toggle)", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "  Velocity = stars/day (finds fastest growing repos)",
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        ),
+    ]));
+
+    let paragraph = Paragraph::new(lines)
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(paragraph, inner);
+}
+
 // Helper function to format duration in a friendly way
 fn format_duration_friendly(days: i64) -> String {
     if days == 0 {
@@ -2043,5 +2335,363 @@ fn get_freshness_color(days: i64) -> Color {
         Color::Rgb(255, 165, 0) // Orange
     } else {
         Color::Red
+    }
+}
+
+/// Render settings popup for token management
+fn render_settings_popup(app: &App, frame: &mut Frame, area: Rect) {
+    use ratatui::layout::{Constraint, Direction, Layout, Alignment};
+
+    // Create centered popup (60% width, 50% height)
+    let popup_area = centered_rect(60, 50, area);
+
+    // Clear background
+    frame.render_widget(Clear, popup_area);
+
+    // Create main block
+    let block = Block::default()
+        .title(" ⚙️  Settings - API Tokens ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .style(Style::default().bg(Color::Black));
+
+    frame.render_widget(block, popup_area);
+
+    // Inner area for content
+    let inner_area = Rect {
+        x: popup_area.x + 2,
+        y: popup_area.y + 2,
+        width: popup_area.width.saturating_sub(4),
+        height: popup_area.height.saturating_sub(4),
+    };
+
+    // Split into sections
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Instructions
+            Constraint::Min(10),   // Platform list
+            Constraint::Length(3), // Status message
+            Constraint::Length(1), // Help text
+        ])
+        .split(inner_area);
+
+    // Instructions
+    let instructions = Paragraph::new(
+        "Configure API tokens for code search and private repositories.\n\
+         Tokens are encrypted and stored locally, valid for 30 days."
+    )
+    .style(Style::default().fg(Color::Gray))
+    .wrap(Wrap { trim: true });
+    frame.render_widget(instructions, chunks[0]);
+
+    // Platform options
+    let platforms = vec![
+        ("GitHub", "github", Color::White),
+        ("GitLab", "gitlab", Color::Rgb(252, 109, 38)),
+        ("Bitbucket", "bitbucket", Color::Blue),
+        ("Close", "", Color::Red),
+    ];
+
+    let items: Vec<ListItem> = platforms
+        .iter()
+        .enumerate()
+        .map(|(i, (name, platform, color))| {
+            let status = if !platform.is_empty() {
+                app.get_token_status(platform)
+            } else {
+                String::new()
+            };
+
+            let style = if i == app.settings_cursor {
+                Style::default()
+                    .fg(*color)
+                    .add_modifier(Modifier::BOLD)
+                    .bg(Color::DarkGray)
+            } else {
+                Style::default().fg(*color)
+            };
+
+            let content = if !platform.is_empty() {
+                format!("  {} - {}", name, status)
+            } else {
+                format!("  {}", name)
+            };
+
+            ListItem::new(content).style(style)
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(Block::default().borders(Borders::NONE));
+    frame.render_widget(list, chunks[1]);
+
+    // Status message
+    if let Some(ref msg) = app.token_status_message {
+        let status_style = if msg.contains("successfully") {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::Yellow)
+        };
+
+        let status = Paragraph::new(msg.as_str())
+            .style(status_style)
+            .wrap(Wrap { trim: true });
+        frame.render_widget(status, chunks[2]);
+    }
+
+    // Help text
+    let help = Paragraph::new("↑↓/j/k: Navigate | Enter: Set token | Esc: Close")
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(help, chunks[3]);
+}
+
+/// Render token input popup
+fn render_token_input_popup(app: &App, frame: &mut Frame, area: Rect) {
+    use ratatui::layout::{Constraint, Direction, Layout};
+
+    // Create centered popup (70% width, 40% height)
+    let popup_area = centered_rect(70, 40, area);
+
+    // Clear background
+    frame.render_widget(Clear, popup_area);
+
+    // Create main block
+    let title = format!(" Enter {} API Token ", app.token_input_platform.to_uppercase());
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .style(Style::default().bg(Color::Black));
+
+    frame.render_widget(block, popup_area);
+
+    // Inner area
+    let inner_area = Rect {
+        x: popup_area.x + 2,
+        y: popup_area.y + 2,
+        width: popup_area.width.saturating_sub(4),
+        height: popup_area.height.saturating_sub(4),
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4), // Instructions
+            Constraint::Length(3), // Input field
+            Constraint::Length(1), // Help
+        ])
+        .split(inner_area);
+
+    // Instructions
+    let instructions_text = match app.token_input_platform.as_str() {
+        "github" => "Create a token at: https://github.com/settings/tokens\nRequired scopes: 'public_repo' or 'repo' for private repos",
+        "gitlab" => "Create a token at: https://gitlab.com/-/profile/personal_access_tokens\nRequired scopes: 'read_api'",
+        "bitbucket" => "Create app password at: https://bitbucket.org/account/settings/app-passwords/\nRequired permissions: 'Repositories: Read'",
+        _ => "Enter your API token below",
+    };
+
+    let instructions = Paragraph::new(instructions_text)
+        .style(Style::default().fg(Color::Gray))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(instructions, chunks[0]);
+
+    // Token input (masked)
+    let masked_token = if app.token_input_buffer.is_empty() {
+        "_".to_string()
+    } else {
+        "*".repeat(app.token_input_buffer.len())
+    };
+
+    let input = Paragraph::new(masked_token)
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Token (hidden) ")
+                .border_style(Style::default().fg(Color::Yellow))
+        );
+    frame.render_widget(input, chunks[1]);
+
+    // Help text
+    let help = Paragraph::new("Type token | Enter: Save | Esc: Cancel")
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(help, chunks[2]);
+}
+
+// Helper function to create centered rect
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+// Render notifications list
+fn render_notifications_list(frame: &mut Frame, app: &App, area: Rect) {
+    let filter_text = if app.notifications_show_all {
+        "All"
+    } else {
+        "Unread"
+    };
+    let participating_text = if app.notifications_participating {
+        " | Participating"
+    } else {
+        ""
+    };
+
+    let title = format!(
+        " Notifications ({}) - {} {} | m: Mark Read | a: Mark All | f: Filter | p: Toggle Participating ",
+        app.notifications.len(),
+        filter_text,
+        participating_text
+    );
+
+    let items: Vec<ListItem> = app
+        .notifications
+        .iter()
+        .enumerate()
+        .map(|(i, notif)| {
+            let unread_marker = if notif.unread { "🔵" } else { "⚪" };
+            let icon = match notif.subject.subject_type.as_str() {
+                "Issue" => "🐛",
+                "PullRequest" => "🔀",
+                "Release" => "🎉",
+                "Commit" => "📝",
+                _ => "📬",
+            };
+
+            let line = Line::from(vec![
+                Span::raw(format!("{} {} ", unread_marker, icon)),
+                Span::styled(
+                    notif.subject.title.clone(),
+                    Style::default().fg(if notif.unread {
+                        Color::White
+                    } else {
+                        Color::DarkGray
+                    }),
+                ),
+                Span::styled(
+                    format!(" ({})", notif.repository.full_name),
+                    Style::default().fg(Color::Blue),
+                ),
+            ]);
+
+            let style = if i == app.notifications_selected_index {
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(line).style(style)
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(if app.notifications_loading {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::Cyan)
+            }),
+    );
+
+    frame.render_widget(list, area);
+}
+
+// Render notification details/preview
+fn render_notification_preview(frame: &mut Frame, app: &App, area: Rect) {
+    if let Some(notif) = app.get_selected_notification() {
+        let lines = vec![
+            Line::from(vec![
+                Span::styled("Title: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&notif.subject.title),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Repository: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&notif.repository.full_name),
+            ]),
+            Line::from(vec![
+                Span::styled("Type: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&notif.subject.subject_type),
+            ]),
+            Line::from(vec![
+                Span::styled("Reason: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&notif.reason),
+            ]),
+            Line::from(vec![
+                Span::styled("Status: ", Style::default().fg(Color::Cyan)),
+                Span::raw(if notif.unread { "Unread" } else { "Read" }),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Updated: ", Style::default().fg(Color::Cyan)),
+                Span::raw(notif.updated_at.format("%Y-%m-%d %H:%M:%S").to_string()),
+            ]),
+        ];
+
+        let mut all_lines = lines;
+
+        if let Some(ref desc) = notif.repository.description {
+            all_lines.push(Line::from(""));
+            all_lines.push(Line::from(vec![
+                Span::styled("Repository Description: ", Style::default().fg(Color::Cyan)),
+            ]));
+            all_lines.push(Line::from(desc.as_str()));
+        }
+
+        all_lines.push(Line::from(""));
+        all_lines.push(Line::from(vec![
+            Span::styled("URL: ", Style::default().fg(Color::Cyan)),
+            Span::styled(&notif.url, Style::default().fg(Color::Blue)),
+        ]));
+
+        all_lines.push(Line::from(""));
+        all_lines.push(Line::from(vec![
+            Span::styled("Repository URL: ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                &notif.repository.html_url,
+                Style::default().fg(Color::Blue),
+            ),
+        ]));
+
+        let paragraph = Paragraph::new(all_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Notification Details | Enter: Open in Browser ")
+                    .border_style(Style::default().fg(Color::Cyan)),
+            )
+            .wrap(Wrap { trim: true });
+
+        frame.render_widget(paragraph, area);
+    } else {
+        let paragraph = Paragraph::new("No notification selected")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Notification Details ")
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+
+        frame.render_widget(paragraph, area);
     }
 }

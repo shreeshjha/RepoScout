@@ -6,8 +6,10 @@ use ratatui::widgets::ListState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
-    Repository,  // Searching for repositories (default)
-    Code,        // Searching for code
+    Repository,     // Searching for repositories (default)
+    Code,           // Searching for code
+    Trending,       // Browsing trending repositories
+    Notifications,  // Viewing GitHub notifications
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +20,8 @@ pub enum InputMode {
     EditingFilter, // Actively typing in a filter field
     FuzzySearch,   // Fuzzy filtering current results
     HistoryPopup,  // Browsing search history
+    Settings,      // Settings/token management popup
+    TokenInput,    // Entering API token
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +140,52 @@ impl CodeSearchFilters {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrendingPeriod {
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+impl TrendingPeriod {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TrendingPeriod::Daily => "Daily",
+            TrendingPeriod::Weekly => "Weekly",
+            TrendingPeriod::Monthly => "Monthly",
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            TrendingPeriod::Daily => TrendingPeriod::Weekly,
+            TrendingPeriod::Weekly => TrendingPeriod::Monthly,
+            TrendingPeriod::Monthly => TrendingPeriod::Daily,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TrendingFilters {
+    pub period: TrendingPeriod,
+    pub language: Option<String>,
+    pub min_stars: u32,
+    pub topic: Option<String>,
+    pub sort_by_velocity: bool,
+}
+
+impl Default for TrendingFilters {
+    fn default() -> Self {
+        Self {
+            period: TrendingPeriod::Weekly,
+            language: None,
+            min_stars: 100,
+            topic: None,
+            sort_by_velocity: false,
+        }
+    }
+}
+
 pub struct App {
     pub should_quit: bool,
     pub input_mode: InputMode,
@@ -182,6 +232,22 @@ pub struct App {
     // Search history popup state
     pub search_history: Vec<SearchHistoryEntry>,
     pub history_selected_index: usize,
+    // Trending state
+    pub trending_filters: TrendingFilters,
+    pub show_trending_options: bool,
+    pub trending_option_cursor: usize,
+    // Settings/Token management state
+    pub show_settings: bool,
+    pub settings_cursor: usize,
+    pub token_input_buffer: String,
+    pub token_input_platform: String, // "github", "gitlab", or "bitbucket"
+    pub token_status_message: Option<String>,
+    // Notification state
+    pub notifications: Vec<reposcout_core::Notification>,
+    pub notifications_selected_index: usize,
+    pub notifications_loading: bool,
+    pub notifications_show_all: bool, // false = unread only, true = all
+    pub notifications_participating: bool, // filter to participating only
 }
 
 #[derive(Debug, Clone)]
@@ -236,6 +302,19 @@ impl App {
             },
             search_history: Vec::new(),
             history_selected_index: 0,
+            trending_filters: TrendingFilters::default(),
+            show_trending_options: false,
+            trending_option_cursor: 0,
+            show_settings: false,
+            settings_cursor: 0,
+            token_input_buffer: String::new(),
+            token_input_platform: String::new(),
+            token_status_message: None,
+            notifications: Vec::new(),
+            notifications_selected_index: 0,
+            notifications_loading: false,
+            notifications_show_all: false,
+            notifications_participating: true,
         }
     }
 
@@ -615,17 +694,21 @@ impl App {
         self.dependencies_loading = false;
     }
 
-    /// Toggle between repository and code search mode
+    /// Toggle between repository, code, trending, and notifications search modes
     pub fn toggle_search_mode(&mut self) {
         self.search_mode = match self.search_mode {
             SearchMode::Repository => SearchMode::Code,
-            SearchMode::Code => SearchMode::Repository,
+            SearchMode::Code => SearchMode::Trending,
+            SearchMode::Trending => SearchMode::Notifications,
+            SearchMode::Notifications => SearchMode::Repository,
         };
         // Clear results and errors when switching modes
         self.code_results.clear();
         self.results.clear();
+        self.notifications.clear();
         self.code_selected_index = 0;
         self.selected_index = 0;
+        self.notifications_selected_index = 0;
         self.error_message = None;
         self.loading = false;
     }
@@ -723,6 +806,174 @@ impl App {
         self.search_input = query.clone();
         // Return the query so caller can trigger a search
         Some(query)
+    }
+
+    // ===== Trending Methods =====
+
+    /// Toggle trending options panel
+    pub fn toggle_trending_options(&mut self) {
+        self.show_trending_options = !self.show_trending_options;
+        if self.show_trending_options {
+            self.trending_option_cursor = 0;
+        }
+    }
+
+    /// Navigate trending options
+    pub fn next_trending_option(&mut self) {
+        // Options: 0=Period, 1=Language, 2=MinStars, 3=Topic, 4=SortByVelocity
+        self.trending_option_cursor = (self.trending_option_cursor + 1).min(4);
+    }
+
+    pub fn previous_trending_option(&mut self) {
+        if self.trending_option_cursor > 0 {
+            self.trending_option_cursor -= 1;
+        }
+    }
+
+    /// Toggle trending period
+    pub fn toggle_trending_period(&mut self) {
+        self.trending_filters.period = self.trending_filters.period.next();
+    }
+
+    /// Toggle sort by velocity
+    pub fn toggle_trending_velocity(&mut self) {
+        self.trending_filters.sort_by_velocity = !self.trending_filters.sort_by_velocity;
+    }
+
+    /// Adjust min stars for trending
+    pub fn increase_trending_min_stars(&mut self) {
+        self.trending_filters.min_stars = (self.trending_filters.min_stars + 50).min(10000);
+    }
+
+    pub fn decrease_trending_min_stars(&mut self) {
+        self.trending_filters.min_stars = self.trending_filters.min_stars.saturating_sub(50);
+    }
+
+    // Settings/Token management methods
+
+    /// Toggle settings popup
+    pub fn toggle_settings(&mut self) {
+        self.show_settings = !self.show_settings;
+        if self.show_settings {
+            self.input_mode = InputMode::Settings;
+            self.settings_cursor = 0;
+            self.token_status_message = None;
+        } else {
+            self.input_mode = InputMode::Normal;
+        }
+    }
+
+    /// Open token input for a platform
+    pub fn start_token_input(&mut self, platform: &str) {
+        self.token_input_platform = platform.to_string();
+        self.token_input_buffer.clear();
+        self.input_mode = InputMode::TokenInput;
+        self.token_status_message = None;
+    }
+
+    /// Save the entered token
+    pub fn save_token(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        use reposcout_core::TokenStore;
+
+        if self.token_input_buffer.is_empty() {
+            self.token_status_message = Some("Token cannot be empty".to_string());
+            return Ok(());
+        }
+
+        // Load or create token store
+        let mut store = TokenStore::load().unwrap_or_else(|_| TokenStore::new());
+
+        // Store token with 30 days validity
+        store.set_token(&self.token_input_platform, &self.token_input_buffer, 30);
+
+        // Save to disk
+        store.save()?;
+
+        self.token_status_message = Some(format!(
+            "{} token saved successfully! (Valid for 30 days)",
+            self.token_input_platform.to_uppercase()
+        ));
+
+        // Clear input
+        self.token_input_buffer.clear();
+        self.input_mode = InputMode::Settings;
+
+        Ok(())
+    }
+
+    /// Cancel token input
+    pub fn cancel_token_input(&mut self) {
+        self.token_input_buffer.clear();
+        self.token_input_platform.clear();
+        self.input_mode = InputMode::Settings;
+    }
+
+    /// Navigate settings options
+    pub fn next_setting(&mut self) {
+        self.settings_cursor = (self.settings_cursor + 1) % 4; // 4 options: GitHub, GitLab, Bitbucket, Close
+    }
+
+    pub fn previous_setting(&mut self) {
+        if self.settings_cursor == 0 {
+            self.settings_cursor = 3;
+        } else {
+            self.settings_cursor -= 1;
+        }
+    }
+
+    /// Get current token status for a platform
+    pub fn get_token_status(&self, platform: &str) -> String {
+        use reposcout_core::TokenStore;
+
+        match TokenStore::load() {
+            Ok(store) => {
+                if let Some(days) = store.get_token_days_remaining(platform) {
+                    if days == 0 {
+                        "Token expired".to_string()
+                    } else if days == 1 {
+                        "Expires in 1 day".to_string()
+                    } else {
+                        format!("Expires in {} days", days)
+                    }
+                } else {
+                    "No token set".to_string()
+                }
+            }
+            Err(_) => "No token set".to_string(),
+        }
+    }
+
+    /// Navigate to next notification
+    pub fn next_notification(&mut self) {
+        if !self.notifications.is_empty() {
+            self.notifications_selected_index = (self.notifications_selected_index + 1) % self.notifications.len();
+        }
+    }
+
+    /// Navigate to previous notification
+    pub fn previous_notification(&mut self) {
+        if !self.notifications.is_empty() {
+            if self.notifications_selected_index > 0 {
+                self.notifications_selected_index -= 1;
+            } else {
+                self.notifications_selected_index = self.notifications.len() - 1;
+            }
+        }
+    }
+
+    /// Toggle showing all vs unread-only notifications
+    pub fn toggle_notification_filter(&mut self) {
+        self.notifications_show_all = !self.notifications_show_all;
+    }
+
+    /// Toggle participating filter
+    pub fn toggle_participating_filter(&mut self) {
+        self.notifications_participating = !self.notifications_participating;
+    }
+
+    /// Get currently selected notification
+    pub fn get_selected_notification(&self) -> Option<&reposcout_core::Notification> {
+        self.notifications.get(self.notifications_selected_index)
     }
 }
 
