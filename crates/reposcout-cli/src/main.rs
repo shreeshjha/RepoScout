@@ -136,6 +136,32 @@ enum Commands {
         #[arg(short = 'v', long)]
         velocity: bool,
     },
+    /// Semantic search using natural language queries
+    Semantic {
+        /// Natural language search query (e.g., "logging library for microservices")
+        query: String,
+
+        /// Number of results to show
+        #[arg(short = 'n', long, default_value = "10")]
+        limit: usize,
+
+        /// Use hybrid search (combine semantic + keyword scores)
+        #[arg(long)]
+        hybrid: bool,
+
+        /// Minimum similarity threshold (0.0-1.0)
+        #[arg(long, default_value = "0.3")]
+        min_similarity: f32,
+
+        /// Export results to file (format detected from extension: .json, .csv, .md)
+        #[arg(short = 'o', long)]
+        export: Option<String>,
+    },
+    /// Semantic index management
+    SemanticIndex {
+        #[command(subcommand)]
+        action: SemanticIndexAction,
+    },
     /// Manage GitHub notifications
     Notifications {
         #[command(subcommand)]
@@ -170,6 +196,20 @@ enum NotificationAction {
     },
     /// Mark all notifications as read
     MarkAllRead,
+}
+
+#[derive(clap::Subcommand)]
+enum SemanticIndexAction {
+    /// Show semantic index statistics
+    Stats,
+    /// Rebuild the semantic index from cached repositories
+    Rebuild {
+        /// Force rebuild even if index exists
+        #[arg(short = 'f', long)]
+        force: bool,
+    },
+    /// Clear the semantic index
+    Clear,
 }
 
 #[derive(clap::Subcommand)]
@@ -354,6 +394,29 @@ async fn main() -> anyhow::Result<()> {
                 cli.bitbucket_app_password,
             )
             .await?;
+        }
+        Some(Commands::Semantic {
+            query,
+            limit,
+            hybrid,
+            min_similarity,
+            export,
+        }) => {
+            handle_semantic_search(
+                &query,
+                limit,
+                hybrid,
+                min_similarity,
+                export,
+                cli.github_token,
+                cli.gitlab_token,
+                cli.bitbucket_username,
+                cli.bitbucket_app_password,
+            )
+            .await?;
+        }
+        Some(Commands::SemanticIndex { action }) => {
+            handle_semantic_index(&action).await?;
         }
         Some(Commands::Notifications { action }) => {
             handle_notifications(action, cli.github_token).await?;
@@ -1320,6 +1383,166 @@ async fn handle_notifications(
         NotificationAction::MarkAllRead => {
             client.mark_all_notifications_read().await?;
             println!("Marked all notifications as read");
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_semantic_search(
+    query: &str,
+    limit: usize,
+    hybrid: bool,
+    min_similarity: f32,
+    export: Option<String>,
+    github_token: Option<String>,
+    gitlab_token: Option<String>,
+    bitbucket_username: Option<String>,
+    bitbucket_app_password: Option<String>,
+) -> anyhow::Result<()> {
+    use reposcout_semantic::{SemanticConfig, SemanticSearchEngine};
+
+    println!("Initializing semantic search engine...");
+
+    // Initialize semantic search engine
+    let cache_path = get_cache_path()?;
+    let semantic_cache_path = cache_path.join("semantic");
+
+    let config = SemanticConfig {
+        enabled: true,
+        cache_path: semantic_cache_path.to_string_lossy().to_string(),
+        min_similarity,
+        max_results: limit * 2, // Get more results for better ranking
+        ..Default::default()
+    };
+
+    let engine = SemanticSearchEngine::new(config)?;
+    engine.initialize().await?;
+
+    println!("Searching with semantic understanding...");
+
+    let results = if hybrid {
+        // Perform keyword search first
+        let cache = reposcout_cache::CacheManager::new(cache_path.to_str().unwrap(), 24)?;
+        let mut keyword_engine = reposcout_core::CachedSearchEngine::with_cache(cache);
+        keyword_engine.add_provider(Box::new(GitHubProvider::new(github_token)));
+        keyword_engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
+        keyword_engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username, bitbucket_app_password)));
+
+        let keyword_results = keyword_engine.search(query).await?;
+
+        // Combine with semantic search
+        let keyword_pairs: Vec<(reposcout_core::models::Repository, f32)> = keyword_results
+            .into_iter()
+            .enumerate()
+            .map(|(i, repo)| {
+                // Assign decreasing scores based on position
+                let score = 1.0 - (i as f32 / 100.0).min(0.9);
+                (repo, score)
+            })
+            .collect();
+
+        engine.hybrid_search(query, keyword_pairs, limit).await?
+    } else {
+        engine.search(query, limit).await?
+    };
+
+    if results.is_empty() {
+        println!("No repositories found for '{}'", query);
+        return Ok(());
+    }
+
+    // Handle export if requested
+    if let Some(export_path) = export {
+        use reposcout_core::Exporter;
+
+        let repos: Vec<_> = results.iter().map(|r| r.repository.clone()).collect();
+        Exporter::export_to_file(&repos, &export_path)
+            .map_err(|e| anyhow::anyhow!("Export failed: {}", e))?;
+
+        println!("✓ Exported {} repositories to {}", repos.len(), export_path);
+        return Ok(());
+    }
+
+    println!("\nFound {} repositories (semantic search):\n", results.len());
+
+    for (i, result) in results.iter().enumerate() {
+        let repo = &result.repository;
+        println!("{}. {} ({}) [similarity: {:.2}]",
+            i + 1,
+            repo.full_name,
+            repo.platform,
+            result.semantic_score
+        );
+
+        if let Some(desc) = &repo.description {
+            println!("   {}", desc);
+        }
+
+        if hybrid {
+            if let Some(keyword_score) = result.keyword_score {
+                println!("   Hybrid score: {:.2} (semantic: {:.2}, keyword: {:.2})",
+                    result.hybrid_score,
+                    result.semantic_score,
+                    keyword_score
+                );
+            }
+        }
+
+        println!("   ⭐ {} stars | 🍴 {} forks | 📝 {}",
+            repo.stars,
+            repo.forks,
+            repo.language.as_deref().unwrap_or("Unknown")
+        );
+        println!("   {}", repo.url);
+        println!();
+    }
+
+    Ok(())
+}
+
+async fn handle_semantic_index(action: &SemanticIndexAction) -> anyhow::Result<()> {
+    use reposcout_semantic::{SemanticConfig, SemanticSearchEngine};
+
+    let cache_path = get_cache_path()?;
+    let semantic_cache_path = cache_path.join("semantic");
+
+    let config = SemanticConfig {
+        enabled: true,
+        cache_path: semantic_cache_path.to_string_lossy().to_string(),
+        ..Default::default()
+    };
+
+    match action {
+        SemanticIndexAction::Stats => {
+            let engine = SemanticSearchEngine::new(config)?;
+            let stats = engine.stats().await;
+
+            println!("\nSemantic Index Statistics:");
+            println!("─────────────────────────────");
+            println!("Total repositories: {}", stats.total_repositories);
+            println!("Index size: {:.2} MB", stats.index_size_bytes as f64 / 1_048_576.0);
+            println!("Model: {}", stats.model_name);
+            println!("Vector dimension: {}", stats.dimension);
+            println!("Last updated: {}", stats.last_updated.format("%Y-%m-%d %H:%M:%S"));
+            println!("Created at: {}", stats.created_at.format("%Y-%m-%d %H:%M:%S"));
+        }
+        SemanticIndexAction::Rebuild { force } => {
+            if !force {
+                println!("Warning: This will rebuild the entire semantic index.");
+                println!("Use --force to confirm.");
+                return Ok(());
+            }
+
+            println!("Note: Semantic index rebuild from cache is not yet implemented.");
+            println!("The index will be automatically built as you search repositories.");
+            println!("Use semantic search commands to populate the index.");
+        }
+        SemanticIndexAction::Clear => {
+            let engine = SemanticSearchEngine::new(config)?;
+            engine.clear().await?;
+
+            println!("✓ Semantic index cleared");
         }
     }
 

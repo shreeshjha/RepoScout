@@ -2921,6 +2921,7 @@ dependencies = [
  "reposcout-api",
  "reposcout-cache",
  "reposcout-core",
+ "reposcout-semantic",
  "reposcout-tui",
  "serde",
  "serde_json",
