@@ -1,5 +1,5 @@
 use crate::embeddings::EmbeddingGenerator;
-use crate::error::{Result, SemanticError};
+use crate::error::Result;
 use crate::index::VectorIndex;
 use crate::models::{IndexStats, SemanticConfig, SemanticSearchResult};
 use reposcout_core::models::Repository;
@@ -316,6 +316,7 @@ mod tests {
             full_name: name.to_string(),
             description: Some(description.to_string()),
             url: format!("https://github.com/{}", name),
+            homepage_url: None,
             stars: 100,
             forks: 10,
             watchers: 50,
@@ -326,6 +327,10 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             pushed_at: chrono::Utc::now(),
+            size: 1024,
+            default_branch: "main".to_string(),
+            is_archived: false,
+            is_private: false,
             health: None,
         }
     }

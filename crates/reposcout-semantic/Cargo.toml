@@ -36,3 +36,6 @@ dirs = "6.0"
 # Text processing
 unicode-segmentation = "1.11"
 regex = "1.10"
+
+[dev-dependencies]
+tempfile = "3"

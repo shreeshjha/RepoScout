@@ -1,7 +1,7 @@
 use crate::error::{Result, SemanticError};
 use crate::models::EmbeddingEntry;
 use crate::preprocessing::{preprocess_query, preprocess_repository};
-use fastembed::{EmbeddingModel, FlagEmbedding, InitOptions, TextEmbedding};
+use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use reposcout_core::models::Repository;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 /// Embedding generator using fastembed
 pub struct EmbeddingGenerator {
     /// The underlying embedding model
-    model: Arc<RwLock<Option<FlagEmbedding>>>,
+    model: Arc<RwLock<Option<TextEmbedding>>>,
 
     /// Model name
     model_name: String,
@@ -63,9 +63,9 @@ impl EmbeddingGenerator {
         };
 
         // Initialize with options
-        let init_options = InitOptions::default();
+        let init_options = InitOptions::new(model_type).with_show_download_progress(true);
 
-        let embedding_model = FlagEmbedding::try_new(init_options.with_model(model_type))
+        let embedding_model = TextEmbedding::try_new(init_options)
             .map_err(|e| SemanticError::ModelLoadError(e.to_string()))?;
 
         *model_guard = Some(embedding_model);

@@ -44,6 +44,7 @@ impl VectorIndex {
             connectivity: 16, // HNSW connectivity parameter
             expansion_add: 128,
             expansion_search: 64,
+            multi: false, // Single-threaded index
         };
 
         let index = USearchIndex::new(&options).map_err(|e| {
@@ -86,10 +87,15 @@ impl VectorIndex {
 
         // Check if repository already exists
         if let Some(&existing_id) = self.repo_to_id.get(&repo_id) {
-            // Update existing entry
+            // Remove old entry and add new one (usearch doesn't have update method)
             debug!("Updating existing entry for {}", repo_id);
             self.index
-                .update(existing_id, &entry.vector)
+                .remove(existing_id)
+                .map_err(|e| SemanticError::IndexError(e.to_string()))?;
+
+            // Add with same ID
+            self.index
+                .add(existing_id, &entry.vector)
                 .map_err(|e| SemanticError::IndexError(e.to_string()))?;
         } else {
             // Add new entry
@@ -256,10 +262,11 @@ impl VectorIndex {
             connectivity: 16,
             expansion_add: 128,
             expansion_search: 64,
+            multi: false,
         };
 
         let index = USearchIndex::new(&options)
-            .and_then(|mut idx| {
+            .and_then(|idx| {
                 idx.load(&index_file.to_string_lossy())?;
                 Ok(idx)
             })
@@ -352,6 +359,7 @@ impl VectorIndex {
                 connectivity: 16,
                 expansion_add: 128,
                 expansion_search: 64,
+                multi: false,
             };
             USearchIndex::new(&options)
                 .map_err(|e| SemanticError::IndexError(format!("Failed to recreate index: {}", e)))?

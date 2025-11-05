@@ -1,6 +1,5 @@
 use regex::Regex;
 use reposcout_core::models::Repository;
-use unicode_segmentation::UnicodeSegmentation;
 
 /// Maximum tokens to use for embedding (BERT limit)
 const MAX_TOKENS: usize = 512;
