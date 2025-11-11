@@ -75,6 +75,34 @@ where
                                             Ok(results) => {
                                                 // Record search in history
                                                 let result_count = results.len();
+
+                                                // Auto-index results for semantic search (in background)
+                                                let results_for_indexing = results.clone();
+                                                tokio::spawn(async move {
+                                                    use reposcout_semantic::{SemanticSearchEngine, SemanticConfig};
+                                                    use std::path::PathBuf;
+
+                                                    // Get semantic index path (same pattern as CLI)
+                                                    if let Some(cache_dir) = dirs_next::cache_dir() {
+                                                        let cache_path = cache_dir.join("reposcout").join("reposcout.db");
+                                                        let semantic_path = cache_path.join("semantic");
+
+                                                        let config = SemanticConfig {
+                                                            cache_path: semantic_path.to_string_lossy().to_string(),
+                                                            ..Default::default()
+                                                        };
+
+                                                        if let Ok(engine) = SemanticSearchEngine::new(config) {
+                                                            if engine.initialize().await.is_ok() {
+                                                                let repos_to_index: Vec<(reposcout_core::models::Repository, Option<String>)> =
+                                                                    results_for_indexing.into_iter().map(|r| (r, None)).collect();
+                                                                let _ = engine.index_repositories(repos_to_index).await;
+                                                                tracing::debug!("Auto-indexed {} repositories for semantic search", result_count);
+                                                            }
+                                                        }
+                                                    }
+                                                });
+
                                                 app.set_results(results);
                                                 app.loading = false;
                                                 app.error_message = None;
@@ -184,6 +212,77 @@ where
 
                                         app.set_code_results(all_results);
                                         app.loading = false;
+                                    }
+                                    SearchMode::Semantic => {
+                                        // Perform hybrid semantic search (keyword + semantic)
+                                        let query = app.get_search_query();
+
+                                        // First, do keyword search to get candidates
+                                        match on_search(&query).await {
+                                            Ok(keyword_results) => {
+                                                if keyword_results.is_empty() {
+                                                    app.error_message = Some("No repositories found. Try a different query.".to_string());
+                                                    app.loading = false;
+                                                } else {
+                                                    // Now perform hybrid semantic search
+                                                    use reposcout_semantic::{SemanticSearchEngine, SemanticConfig};
+                                                    let config = SemanticConfig::default();
+
+                                                    match SemanticSearchEngine::new(config) {
+                                                        Ok(engine) => {
+                                                            match engine.initialize().await {
+                                                                Ok(_) => {
+                                                                    // Convert to format expected by hybrid_search
+                                                                    let keyword_pairs: Vec<(reposcout_core::models::Repository, f32)> = keyword_results
+                                                                        .into_iter()
+                                                                        .enumerate()
+                                                                        .map(|(i, repo)| {
+                                                                            let score = 1.0 - (i as f32 / 100.0).min(0.9);
+                                                                            (repo, score)
+                                                                        })
+                                                                        .collect();
+
+                                                                    match engine.hybrid_search(&query, keyword_pairs, 30).await {
+                                                                        Ok(results) => {
+                                                                            let result_count = results.len();
+
+                                                                            // Convert semantic results to regular repositories
+                                                                            let repos: Vec<reposcout_core::models::Repository> =
+                                                                                results.into_iter().map(|r| r.repository).collect();
+
+                                                                            app.set_results(repos);
+                                                                            app.loading = false;
+                                                                            app.error_message = None;
+
+                                                                            // Save to search history
+                                                                            if let Err(e) = cache.add_search_history(&app.search_input, None, Some(result_count as i64)) {
+                                                                                tracing::warn!("Failed to save search history: {}", e);
+                                                                            }
+                                                                        }
+                                                                        Err(e) => {
+                                                                            app.error_message = Some(format!("Semantic search failed: {}", e));
+                                                                            app.loading = false;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    app.error_message = Some(format!("Failed to initialize semantic search: {}", e));
+                                                                    app.loading = false;
+                                                                }
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            app.error_message = Some(format!("Failed to create semantic engine: {}", e));
+                                                            app.loading = false;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                app.loading = false;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -309,6 +408,65 @@ where
                                     SearchMode::Notifications => {
                                         // Notifications not in search history
                                         app.loading = false;
+                                    }
+                                    SearchMode::Semantic => {
+                                        // Hybrid semantic search from history
+                                        let query_str = app.get_search_query();
+
+                                        match on_search(&query_str).await {
+                                            Ok(keyword_results) => {
+                                                if keyword_results.is_empty() {
+                                                    app.error_message = Some("No repositories found".to_string());
+                                                    app.loading = false;
+                                                } else {
+                                                    use reposcout_semantic::{SemanticSearchEngine, SemanticConfig};
+                                                    let config = SemanticConfig::default();
+
+                                                    match SemanticSearchEngine::new(config) {
+                                                        Ok(engine) => {
+                                                            match engine.initialize().await {
+                                                                Ok(_) => {
+                                                                    let keyword_pairs: Vec<(reposcout_core::models::Repository, f32)> = keyword_results
+                                                                        .into_iter()
+                                                                        .enumerate()
+                                                                        .map(|(i, repo)| {
+                                                                            let score = 1.0 - (i as f32 / 100.0).min(0.9);
+                                                                            (repo, score)
+                                                                        })
+                                                                        .collect();
+
+                                                                    match engine.hybrid_search(&query_str, keyword_pairs, 30).await {
+                                                                        Ok(results) => {
+                                                                            let repos: Vec<reposcout_core::models::Repository> =
+                                                                                results.into_iter().map(|r| r.repository).collect();
+                                                                            app.set_results(repos);
+                                                                            app.loading = false;
+                                                                            app.error_message = None;
+                                                                        }
+                                                                        Err(e) => {
+                                                                            app.error_message = Some(format!("Semantic search failed: {}", e));
+                                                                            app.loading = false;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    app.error_message = Some(format!("Failed to initialize: {}", e));
+                                                                    app.loading = false;
+                                                                }
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            app.error_message = Some(format!("Failed to create engine: {}", e));
+                                                            app.loading = false;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                app.loading = false;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -694,14 +852,23 @@ where
                             }
                         }
                         KeyCode::Char('F') => {
-                            app.toggle_filters();
-                            if app.show_filters {
-                                app.enter_filter_mode();
+                            // Toggle filters based on search mode
+                            if app.search_mode == SearchMode::Code {
+                                app.toggle_code_filters();
+                            } else {
+                                app.toggle_filters();
+                                if app.show_filters {
+                                    app.enter_filter_mode();
+                                }
                             }
                         }
                         KeyCode::Tab => {
-                            // Tab cycles through preview tabs
-                            app.next_preview_tab();
+                            // Tab cycles through preview tabs/modes based on search mode
+                            if app.search_mode == SearchMode::Code {
+                                app.toggle_code_preview_mode();
+                            } else {
+                                app.next_preview_tab();
+                            }
                         }
                         KeyCode::BackTab => {
                             // Shift+Tab cycles backward through preview tabs
@@ -949,11 +1116,12 @@ where
                                     if key.code == KeyCode::Down {
                                         app.next_code_result();
                                         app.reset_code_scroll();
+                                        app.reset_code_match_index();
                                     } else {
                                         app.scroll_code_down();
                                     }
                                 }
-                                SearchMode::Repository | SearchMode::Trending => {
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
                                     // If in README preview mode, scroll instead of navigating
                                     if app.preview_mode == PreviewMode::Readme {
                                         app.scroll_readme_down();
@@ -974,11 +1142,12 @@ where
                                     if key.code == KeyCode::Up {
                                         app.previous_code_result();
                                         app.reset_code_scroll();
+                                        app.reset_code_match_index();
                                     } else {
                                         app.scroll_code_up();
                                     }
                                 }
-                                SearchMode::Repository | SearchMode::Trending => {
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
                                     // If in README preview mode, scroll instead of navigating
                                     if app.preview_mode == PreviewMode::Readme {
                                         app.scroll_readme_up();
@@ -989,6 +1158,18 @@ where
                                 SearchMode::Notifications => {
                                     app.previous_notification();
                                 }
+                            }
+                        }
+                        KeyCode::Char('n') => {
+                            // Navigate to next match within current code result
+                            if app.search_mode == SearchMode::Code {
+                                app.next_code_match();
+                            }
+                        }
+                        KeyCode::Char('N') => {
+                            // Navigate to previous match within current code result
+                            if app.search_mode == SearchMode::Code {
+                                app.previous_code_match();
                             }
                         }
                         KeyCode::Enter => {
@@ -1004,7 +1185,7 @@ where
                                         }
                                     }
                                 }
-                                SearchMode::Repository | SearchMode::Trending => {
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
                                     if let Some(repo) = app.selected_repository() {
                                         // Open in browser
                                         let url = repo.url.clone();

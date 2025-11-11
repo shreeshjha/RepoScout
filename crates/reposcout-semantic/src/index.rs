@@ -47,8 +47,14 @@ impl VectorIndex {
             multi: false, // Single-threaded index
         };
 
-        let index = USearchIndex::new(&options).map_err(|e| {
+        let mut index = USearchIndex::new(&options).map_err(|e| {
             SemanticError::IndexError(format!("Failed to create usearch index: {}", e))
+        })?;
+
+        // Reserve initial capacity for the index
+        info!("Reserving capacity for 1000 vectors");
+        index.reserve(1000).map_err(|e| {
+            SemanticError::IndexError(format!("Failed to reserve index capacity: {}", e))
         })?;
 
         Ok(Self {
@@ -116,9 +122,17 @@ impl VectorIndex {
 
     /// Add multiple repository embeddings in batch
     pub fn add_batch(&mut self, entries: Vec<EmbeddingEntry>) -> Result<()> {
-        for entry in entries {
+        use tracing::info;
+
+        let total = entries.len();
+        info!("add_batch: Processing {} entries", total);
+        for (i, entry) in entries.into_iter().enumerate() {
+            let repo_id = entry.repo_id.clone();
+            info!("add_batch: Adding entry {}/{}: {}", i + 1, total, repo_id);
             self.add(entry)?;
+            info!("add_batch: Successfully added entry {}/{}", i + 1, total);
         }
+        info!("add_batch: All entries added successfully");
         Ok(())
     }
 

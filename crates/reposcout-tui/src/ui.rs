@@ -1,5 +1,6 @@
 // UI rendering logic
 use crate::{App, InputMode, SearchMode};
+use crate::code_ui;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -82,10 +83,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             render_preview(frame, app, content_chunks[1]);
         }
         SearchMode::Code => {
-            // Render code search results
-            render_code_results_list(frame, app, content_chunks[0]);
-            // Render code preview with syntax highlighting
-            render_code_preview(frame, app, content_chunks[1]);
+            // Render enhanced code search results with filter panel
+            code_ui::render_code_results_list(frame, app, content_chunks[0]);
+            // Render enhanced code preview with tabs and syntax highlighting
+            code_ui::render_code_preview(frame, app, content_chunks[1]);
         }
         SearchMode::Trending => {
             // Render trending results (reuse repository results list)
@@ -98,6 +99,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             render_notifications_list(frame, app, content_chunks[0]);
             // Render notification details
             render_notification_preview(frame, app, content_chunks[1]);
+        }
+        SearchMode::Semantic => {
+            // Render semantic search results (reuse repository results list)
+            render_results_list(frame, app, content_chunks[0]);
+            // Render preview pane with semantic scores
+            render_preview(frame, app, content_chunks[1]);
         }
     }
 
@@ -179,6 +186,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
             SearchMode::Code => "Code",
             SearchMode::Trending => "Trend",
             SearchMode::Notifications => "Notif",
+            SearchMode::Semantic => "Semantic",
         }
     } else {
         match app.search_mode {
@@ -186,6 +194,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
             SearchMode::Code => "Code Search",
             SearchMode::Trending => "Trending Repos",
             SearchMode::Notifications => "Notifications",
+            SearchMode::Semantic => "Semantic Search (AI)",
         }
     };
     let mode_color = match app.search_mode {
@@ -193,6 +202,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         SearchMode::Code => Color::Green,
         SearchMode::Trending => Color::Magenta,
         SearchMode::Notifications => Color::Yellow,
+        SearchMode::Semantic => Color::LightBlue,
     };
 
     // Build platform status indicators (adaptive based on width)
@@ -316,6 +326,9 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
                 ""
             };
             ("📬 Notifications", format!("{}{}", filter_info, participating_info))
+        }
+        SearchMode::Semantic => {
+            ("Semantic Search (AI) - ESC to navigate, / to search", app.search_input.as_str().to_string())
         }
     };
 
@@ -1449,7 +1462,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                 use crate::PreviewMode;
                 match app.search_mode {
                     SearchMode::Code => {
-                        Span::raw("j/k: navigate | /: search | Ctrl+R: history | Ctrl+S: settings | M: switch mode | TAB: scroll | ENTER: open | q: quit")
+                        Span::styled("j/k: navigate | F: filters | TAB: tabs | n/N: matches | /: search | ENTER: open | M: mode | q: quit", Style::default().fg(Color::Green))
                     }
                     SearchMode::Repository => {
                         if app.preview_mode == PreviewMode::Readme {
@@ -1463,6 +1476,13 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                     }
                     SearchMode::Notifications => {
                         Span::styled("j/k: navigate | m: mark read | a: mark all | f: filter | p: participating | ENTER: open | M: mode | q: quit", Style::default().fg(Color::Yellow))
+                    }
+                    SearchMode::Semantic => {
+                        if app.preview_mode == PreviewMode::Readme {
+                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | Ctrl+S: settings | M: switch mode | q: quit", Style::default().fg(Color::LightBlue))
+                        } else {
+                            Span::styled("j/k: navigate | /: search | Ctrl+R: history | Ctrl+S: settings | f: fuzzy | M: mode | TAB: tabs | b: bookmark | q: quit", Style::default().fg(Color::LightBlue))
+                        }
                     }
                 }
             }

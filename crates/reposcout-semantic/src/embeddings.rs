@@ -107,6 +107,10 @@ impl EmbeddingGenerator {
 
     /// Generate embeddings for multiple texts in batch
     pub async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        use tracing::{debug, info};
+
+        debug!("embed_batch called with {} texts", texts.len());
+
         // Ensure model is initialized
         if self.model.read().await.is_none() {
             self.initialize().await?;
@@ -118,9 +122,11 @@ impl EmbeddingGenerator {
             .ok_or(SemanticError::ModelNotInitialized)?;
 
         // Generate embeddings
+        info!("Calling model.embed() for {} texts", texts.len());
         let embeddings = model
             .embed(texts, None)
             .map_err(|e| SemanticError::EmbeddingError(e.to_string()))?;
+        info!("model.embed() returned {} embeddings", embeddings.len());
 
         Ok(embeddings)
     }

@@ -10,6 +10,7 @@ pub enum SearchMode {
     Code,           // Searching for code
     Trending,       // Browsing trending repositories
     Notifications,  // Viewing GitHub notifications
+    Semantic,       // Semantic search with natural language
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +31,13 @@ pub enum PreviewMode {
     Readme,        // Show README content
     Activity,      // Show repository activity/commits
     Dependencies,  // Show dependency analysis
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodePreviewMode {
+    Code,       // Show highlighted code with context
+    Raw,        // Show raw text
+    FileInfo,   // Show file metadata and repository info
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +233,11 @@ pub struct App {
     pub code_filters: CodeSearchFilters,
     pub code_selected_index: usize,
     pub code_scroll: u16,
+    pub code_preview_mode: CodePreviewMode,
+    pub show_code_filters: bool,
+    pub code_filter_cursor: usize,
+    pub code_filter_edit_buffer: String,
+    pub code_match_index: usize, // Which match within a file to highlight
     // Full file content cache for code preview
     pub code_content_cache: std::collections::HashMap<String, String>,
     // Platform status tracking
@@ -294,6 +307,11 @@ impl App {
             code_filters: CodeSearchFilters::default(),
             code_selected_index: 0,
             code_scroll: 0,
+            code_preview_mode: CodePreviewMode::Code,
+            show_code_filters: false,
+            code_filter_cursor: 0,
+            code_filter_edit_buffer: String::new(),
+            code_match_index: 0,
             code_content_cache: std::collections::HashMap::new(),
             platform_status: PlatformStatus {
                 github_configured: true,  // Always available (public repos don't need auth)
@@ -694,13 +712,14 @@ impl App {
         self.dependencies_loading = false;
     }
 
-    /// Toggle between repository, code, trending, and notifications search modes
+    /// Toggle between repository, code, trending, notifications, and semantic search modes
     pub fn toggle_search_mode(&mut self) {
         self.search_mode = match self.search_mode {
             SearchMode::Repository => SearchMode::Code,
             SearchMode::Code => SearchMode::Trending,
             SearchMode::Trending => SearchMode::Notifications,
-            SearchMode::Notifications => SearchMode::Repository,
+            SearchMode::Notifications => SearchMode::Semantic,
+            SearchMode::Semantic => SearchMode::Repository,
         };
         // Clear results and errors when switching modes
         self.code_results.clear();
@@ -756,6 +775,68 @@ impl App {
     /// Get code search query with filters
     pub fn get_code_search_query(&self) -> String {
         self.code_filters.build_query(&self.search_input)
+    }
+
+    /// Toggle code filter panel visibility
+    pub fn toggle_code_filters(&mut self) {
+        self.show_code_filters = !self.show_code_filters;
+        if self.show_code_filters {
+            self.code_filter_cursor = 0;
+        }
+    }
+
+    /// Navigate to next code filter field
+    pub fn next_code_filter(&mut self) {
+        self.code_filter_cursor = (self.code_filter_cursor + 1).min(3); // 4 filter fields
+    }
+
+    /// Navigate to previous code filter field
+    pub fn previous_code_filter(&mut self) {
+        if self.code_filter_cursor > 0 {
+            self.code_filter_cursor -= 1;
+        }
+    }
+
+    /// Clear current code filter
+    pub fn clear_current_code_filter(&mut self) {
+        match self.code_filter_cursor {
+            0 => self.code_filters.language = None,
+            1 => self.code_filters.repo = None,
+            2 => self.code_filters.path = None,
+            3 => self.code_filters.extension = None,
+            _ => {}
+        }
+    }
+
+    /// Toggle code preview mode (Code/Raw/FileInfo)
+    pub fn toggle_code_preview_mode(&mut self) {
+        self.code_preview_mode = match self.code_preview_mode {
+            CodePreviewMode::Code => CodePreviewMode::Raw,
+            CodePreviewMode::Raw => CodePreviewMode::FileInfo,
+            CodePreviewMode::FileInfo => CodePreviewMode::Code,
+        };
+        // Reset scroll when switching modes
+        self.code_scroll = 0;
+    }
+
+    /// Navigate to next match within the current code result
+    pub fn next_code_match(&mut self) {
+        if let Some(result) = self.selected_code_result() {
+            let max_matches = result.matches.len().saturating_sub(1);
+            self.code_match_index = (self.code_match_index + 1).min(max_matches);
+        }
+    }
+
+    /// Navigate to previous match within the current code result
+    pub fn previous_code_match(&mut self) {
+        if self.code_match_index > 0 {
+            self.code_match_index -= 1;
+        }
+    }
+
+    /// Reset match index when navigating to a different result
+    pub fn reset_code_match_index(&mut self) {
+        self.code_match_index = 0;
     }
 
     // ===== Search History Methods =====

@@ -90,19 +90,26 @@ impl SemanticSearchEngine {
         info!("Indexing {} repositories...", repos.len());
 
         // Prepare for batch embedding
+        debug!("Preparing repository references for embedding");
         let repo_refs: Vec<(&Repository, Option<&str>)> = repos
             .iter()
             .map(|(repo, readme)| (repo, readme.as_deref()))
             .collect();
+        debug!("Prepared {} repository references", repo_refs.len());
 
         // Generate embeddings in batch
+        info!("Generating embeddings for {} repositories", repo_refs.len());
         let entries = self.embedder.embed_repositories(repo_refs).await?;
+        info!("Generated {} embeddings", entries.len());
 
         // Add to index
+        info!("Adding {} entries to vector index", entries.len());
         let mut index = self.index.write().await;
         index.add_batch(entries)?;
+        info!("Added entries to index successfully");
 
         // Cache repositories
+        debug!("Caching repositories");
         let mut cache = self.repo_cache.write().await;
         for (repo, _) in &repos {
             let repo_id = format!("{}:{}", repo.platform, repo.full_name);
@@ -170,6 +177,17 @@ impl SemanticSearchEngine {
         limit: usize,
     ) -> Result<Vec<SemanticSearchResult>> {
         debug!("Hybrid search query: {}", query);
+
+        // First, index the keyword results if they aren't already indexed
+        let repos_to_index: Vec<(Repository, Option<String>)> = keyword_results
+            .iter()
+            .map(|(repo, _)| (repo.clone(), None))
+            .collect();
+
+        if !repos_to_index.is_empty() {
+            info!("Indexing {} keyword results for semantic search", repos_to_index.len());
+            self.index_repositories(repos_to_index).await?;
+        }
 
         // Perform semantic search
         let semantic_results = self.search(query, limit * 2).await?;
