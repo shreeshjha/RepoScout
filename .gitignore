@@ -31,6 +31,9 @@
 *.sqlite
 *.sqlite3
 
+# ML model cache - fastembed downloads
+.fastembed_cache/
+
 # Logs
 *.log
 

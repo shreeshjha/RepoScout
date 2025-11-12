@@ -12,6 +12,7 @@ reposcout-core = { path = "../reposcout-core" }
 reposcout-api = { path = "../reposcout-api" }
 reposcout-cache = { path = "../reposcout-cache" }
 reposcout-deps = { path = "../reposcout-deps" }
+reposcout-semantic = { path = "../reposcout-semantic" }
 
 ratatui = { workspace = true }
 crossterm = { workspace = true }
@@ -23,3 +24,5 @@ chrono = { workspace = true }
 fuzzy-matcher = { workspace = true }
 syntect = { workspace = true }
 open = "5.3"
+dirs-next = "2.0"
+arboard = "3.4"

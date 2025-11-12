@@ -255,6 +255,11 @@ impl GitHubClient {
 
             let status = response.status();
 
+            // Handle authentication requirement (401 or 403)
+            if status == 401 || (status == 403 && token.is_none()) {
+                return Err(GitHubError::AuthRequired);
+            }
+
             // Don't retry client errors
             if status.is_client_error() && !is_retryable_status(status) {
                 let body = response.text().await.unwrap_or_default();
@@ -273,7 +278,16 @@ impl GitHubClient {
                 )));
             }
 
-            let search_result: CodeSearchResponse = response.json().await?;
+            // Get response text for debugging
+            let response_text = response.text().await?;
+            tracing::debug!("GitHub code search response: {}", &response_text[..response_text.len().min(500)]);
+
+            let search_result: CodeSearchResponse = serde_json::from_str(&response_text)
+                .map_err(|e| {
+                    tracing::error!("Failed to parse GitHub response: {}", e);
+                    tracing::error!("Response snippet: {}", &response_text[..response_text.len().min(1000)]);
+                    GitHubError::ParseError(e)
+                })?;
             Ok(search_result.items)
         })
         .await
@@ -324,6 +338,129 @@ impl GitHubClient {
         .await
     }
 
+    /// Get notifications for the authenticated user
+    pub async fn get_notifications(
+        &self,
+        all: bool,           // false = only unread, true = all
+        participating: bool, // true = only notifications user is participating in
+        per_page: u32,
+    ) -> Result<Vec<crate::notifications::Notification>> {
+        let url = format!("{}/notifications", self.base_url);
+        let token = self.token.clone();
+
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client
+                .get(&url)
+                .query(&[
+                    ("all", if all { "true" } else { "false" }),
+                    ("participating", if participating { "true" } else { "false" }),
+                    ("per_page", &per_page.to_string()),
+                ]);
+
+            if let Some(ref token) = token {
+                request = request.bearer_auth(token);
+            } else {
+                return Err(GitHubError::AuthRequired);
+            }
+
+            let response = request.send().await?;
+            self.check_rate_limit(&response)?;
+
+            let status = response.status();
+
+            if status == 401 {
+                return Err(GitHubError::AuthRequired);
+            }
+
+            if !response.status().is_success() {
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitHubError::RequestFailed(format!(
+                    "Failed to fetch notifications: {}",
+                    status
+                )));
+            }
+
+            let notifications: Vec<crate::notifications::Notification> = response.json().await?;
+            Ok(notifications)
+        })
+        .await
+    }
+
+    /// Mark a notification thread as read
+    pub async fn mark_notification_read(&self, thread_id: &str) -> Result<()> {
+        let url = format!("{}/notifications/threads/{}", self.base_url, thread_id);
+        let token = self.token.clone();
+
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client.patch(&url);
+
+            if let Some(ref token) = token {
+                request = request.bearer_auth(token);
+            } else {
+                return Err(GitHubError::AuthRequired);
+            }
+
+            let response = request.send().await?;
+            self.check_rate_limit(&response)?;
+
+            let status = response.status();
+
+            if status == 401 {
+                return Err(GitHubError::AuthRequired);
+            }
+
+            if !response.status().is_success() {
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitHubError::RequestFailed(format!(
+                    "Failed to mark notification as read: {}",
+                    status
+                )));
+            }
+
+            Ok(())
+        })
+        .await
+    }
+
+    /// Mark all notifications as read
+    pub async fn mark_all_notifications_read(&self) -> Result<()> {
+        let url = format!("{}/notifications", self.base_url);
+        let token = self.token.clone();
+
+        with_retry(&self.retry_config, || async {
+            let mut request = self.client
+                .put(&url)
+                .json(&serde_json::json!({"read": true}));
+
+            if let Some(ref token) = token {
+                request = request.bearer_auth(token);
+            } else {
+                return Err(GitHubError::AuthRequired);
+            }
+
+            let response = request.send().await?;
+            self.check_rate_limit(&response)?;
+
+            let status = response.status();
+
+            if status == 401 {
+                return Err(GitHubError::AuthRequired);
+            }
+
+            // GitHub returns 205 or 202 for this endpoint
+            if status != reqwest::StatusCode::RESET_CONTENT && status != reqwest::StatusCode::ACCEPTED {
+                let body = response.text().await.unwrap_or_default();
+                return Err(GitHubError::RequestFailed(format!(
+                    "Failed to mark all notifications as read: {}",
+                    status
+                )));
+            }
+
+            Ok(())
+        })
+        .await
+    }
+
     /// Check if we're hitting rate limits and return helpful error
     fn check_rate_limit(&self, response: &reqwest::Response) -> Result<()> {
         if response.status() == 403 {
@@ -363,9 +500,24 @@ pub struct CodeSearchItem {
     pub url: String,
     pub git_url: String,
     pub html_url: String,
-    pub repository: GitHubRepo,
+    pub repository: CodeSearchRepository,
     #[serde(default)]
     pub text_matches: Vec<TextMatch>,
+}
+
+/// Minimal repository object returned in code search results
+/// This is different from the full GitHubRepo - code search returns fewer fields
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSearchRepository {
+    pub id: u64,
+    pub name: String,
+    pub full_name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub html_url: String,
+    pub owner: Owner,
+    #[serde(default)]
+    pub private: bool,
 }
 
 /// Text match containing the actual code snippet

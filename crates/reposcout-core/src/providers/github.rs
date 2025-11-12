@@ -66,5 +66,6 @@ fn github_to_repo(gh: GitHubRepo) -> Repository {
         default_branch: gh.default_branch,
         is_archived: gh.archived,
         is_private: gh.private,
+        health: None,
     }
 }

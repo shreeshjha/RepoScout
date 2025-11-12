@@ -4,6 +4,8 @@
 pub mod app;
 pub mod runner;
 pub mod ui;
+pub mod sparkline;
+pub mod code_ui;
 
-pub use app::{App, InputMode, PreviewMode, SearchMode};
+pub use app::{App, CodePreviewMode, InputMode, PreviewMode, SearchMode, PlatformStatus};
 pub use runner::run_tui;
