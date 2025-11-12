@@ -31,6 +31,7 @@ pub enum PreviewMode {
     Readme,        // Show README content
     Activity,      // Show repository activity/commits
     Dependencies,  // Show dependency analysis
+    Package,       // Show package manager info and install commands
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,6 +229,9 @@ pub struct App {
     // Dependency analysis state
     pub dependencies_cache: std::collections::HashMap<String, Option<DependencyInfo>>,
     pub dependencies_loading: bool,
+    // Package manager integration
+    pub package_info_cache: std::collections::HashMap<String, Vec<reposcout_core::PackageInfo>>,
+    pub package_loading: bool,
     // Code search state
     pub code_results: Vec<CodeSearchResult>,
     pub code_filters: CodeSearchFilters,
@@ -303,6 +307,8 @@ impl App {
             fuzzy_match_count: 0,
             dependencies_cache: std::collections::HashMap::new(),
             dependencies_loading: false,
+            package_info_cache: std::collections::HashMap::new(),
+            package_loading: false,
             code_results: Vec::new(),
             code_filters: CodeSearchFilters::default(),
             code_selected_index: 0,
@@ -446,7 +452,8 @@ impl App {
             PreviewMode::Stats => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Dependencies,
-            PreviewMode::Dependencies => PreviewMode::Stats,
+            PreviewMode::Dependencies => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Stats,
         };
     }
 
@@ -455,14 +462,23 @@ impl App {
             PreviewMode::Stats => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Dependencies,
-            PreviewMode::Dependencies => PreviewMode::Stats,
+            PreviewMode::Dependencies => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Stats,
         };
         self.reset_readme_scroll();
+
+        // Auto-detect package info when switching to Package tab
+        if self.preview_mode == PreviewMode::Package {
+            if self.get_cached_package_info().is_none() {
+                self.detect_package_info();
+            }
+        }
     }
 
     pub fn previous_preview_tab(&mut self) {
         self.preview_mode = match self.preview_mode {
-            PreviewMode::Stats => PreviewMode::Dependencies,
+            PreviewMode::Stats => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Dependencies,
             PreviewMode::Dependencies => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Stats,
@@ -710,6 +726,49 @@ impl App {
     /// Stop dependency loading
     pub fn stop_dependencies_loading(&mut self) {
         self.dependencies_loading = false;
+    }
+
+    /// Get cached package info for current repository
+    pub fn get_cached_package_info(&self) -> Option<&Vec<reposcout_core::PackageInfo>> {
+        if let Some(repo) = self.selected_repository() {
+            self.package_info_cache.get(&repo.full_name)
+        } else {
+            None
+        }
+    }
+
+    /// Cache package info for a repository
+    pub fn cache_package_info(&mut self, repo_name: String, packages: Vec<reposcout_core::PackageInfo>) {
+        self.package_info_cache.insert(repo_name, packages);
+    }
+
+    /// Start package loading
+    pub fn start_package_loading(&mut self) {
+        self.package_loading = true;
+    }
+
+    /// Stop package loading
+    pub fn stop_package_loading(&mut self) {
+        self.package_loading = false;
+    }
+
+    /// Detect and cache package info for current repository
+    pub fn detect_package_info(&mut self) {
+        if let Some(repo) = self.selected_repository() {
+            let managers = reposcout_core::PackageDetector::detect(repo);
+
+            let mut packages = Vec::new();
+            for manager in managers {
+                if let Some(pkg_name) = reposcout_core::PackageDetector::extract_package_name(repo, manager) {
+                    let pkg_info = reposcout_core::PackageInfo::new(manager, pkg_name);
+                    packages.push(pkg_info);
+                }
+            }
+
+            if !packages.is_empty() {
+                self.cache_package_info(repo.full_name.clone(), packages);
+            }
+        }
     }
 
     /// Toggle between repository, code, trending, notifications, and semantic search modes

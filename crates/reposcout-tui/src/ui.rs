@@ -544,6 +544,7 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
         PreviewMode::Readme => (render_readme_preview(app), app.readme_scroll),
         PreviewMode::Activity => (render_activity_preview(app), 0),
         PreviewMode::Dependencies => (render_dependencies_preview(app), 0),
+        PreviewMode::Package => (render_package_preview(app), 0),
     };
 
     let paragraph = Paragraph::new(content)
@@ -562,6 +563,7 @@ fn render_preview_tabs(frame: &mut Frame, app: &App, area: Rect) {
         ("README", PreviewMode::Readme),
         ("Activity", PreviewMode::Activity),
         ("Dependencies", PreviewMode::Dependencies),
+        ("Package", PreviewMode::Package),
     ];
 
     let tab_spans: Vec<Span> = tabs
@@ -2713,5 +2715,206 @@ fn render_notification_preview(frame: &mut Frame, app: &App, area: Rect) {
             );
 
         frame.render_widget(paragraph, area);
+    }
+}
+
+/// Render package manager information preview
+fn render_package_preview(app: &App) -> Vec<Line> {
+    let mut lines = Vec::new();
+
+    if let Some(repo) = app.selected_repository() {
+        // Check if we have cached package info
+        if let Some(packages) = app.get_cached_package_info() {
+            if packages.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("📦 No Package Detected", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                ]));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("This repository doesn't appear to be a published package.", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("It may be:", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  • An application (not a library)", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  • A collection of tools/scripts", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  • Not published to package registries", Style::default().fg(Color::DarkGray)),
+                ]));
+            } else {
+                // Show detected packages
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("📦 Package Information", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                ]));
+                lines.push(Line::from(""));
+
+                for (idx, pkg) in packages.iter().enumerate() {
+                    if idx > 0 {
+                        lines.push(Line::from(""));
+                        lines.push(Line::from(vec![
+                            Span::styled("─".repeat(60), Style::default().fg(Color::DarkGray)),
+                        ]));
+                        lines.push(Line::from(""));
+                    }
+
+                    // Package Manager badge
+                    let pm_color = match pkg.manager {
+                        reposcout_core::PackageManager::Cargo => Color::Rgb(255, 140, 0), // Orange
+                        reposcout_core::PackageManager::Npm => Color::Rgb(203, 56, 55),   // Red
+                        reposcout_core::PackageManager::PyPI => Color::Rgb(55, 118, 171), // Blue
+                        reposcout_core::PackageManager::Go => Color::Rgb(0, 173, 216),   // Cyan
+                        _ => Color::Green,
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!(" {} ", pkg.manager),
+                            Style::default().fg(Color::Black).bg(pm_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw("  "),
+                        Span::styled(&pkg.name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    ]));
+                    lines.push(Line::from(""));
+
+                    // Install command (primary)
+                    lines.push(Line::from(vec![
+                        Span::styled("Install:", Style::default().fg(Color::Cyan)),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("  $ ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(&pkg.install_command, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    ]));
+
+                    // Alternative install command if available
+                    if let Some(alt_cmd) = &pkg.alt_install_command {
+                        lines.push(Line::from(vec![
+                            Span::styled("  $ ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(alt_cmd, Style::default().fg(Color::Yellow)),
+                        ]));
+                    }
+                    lines.push(Line::from(""));
+
+                    // Registry URL
+                    lines.push(Line::from(vec![
+                        Span::styled("Registry:  ", Style::default().fg(Color::Cyan)),
+                        Span::styled(&pkg.registry_url, Style::default().fg(Color::Blue)),
+                    ]));
+                    lines.push(Line::from(""));
+
+                    // Version info (if available)
+                    if let Some(version) = &pkg.latest_version {
+                        lines.push(Line::from(vec![
+                            Span::styled("Version:   ", Style::default().fg(Color::Cyan)),
+                            Span::styled(version, Style::default().fg(Color::Green)),
+                        ]));
+                    }
+
+                    // Downloads (if available)
+                    if let Some(downloads) = pkg.downloads {
+                        let downloads_formatted = format_downloads(downloads);
+                        lines.push(Line::from(vec![
+                            Span::styled("Downloads: ", Style::default().fg(Color::Cyan)),
+                            Span::styled(downloads_formatted, Style::default().fg(Color::Magenta)),
+                        ]));
+                    }
+
+                    // License
+                    if let Some(license) = &pkg.license {
+                        let license_obj = reposcout_core::License::from_str(license);
+                        let license_color = match license_obj {
+                            reposcout_core::License::MIT | reposcout_core::License::Apache2 |
+                            reposcout_core::License::BSD2 | reposcout_core::License::BSD3 => Color::Green,
+                            reposcout_core::License::GPL2 | reposcout_core::License::GPL3 |
+                            reposcout_core::License::AGPL => Color::Yellow,
+                            reposcout_core::License::Proprietary => Color::Red,
+                            _ => Color::Gray,
+                        };
+
+                        lines.push(Line::from(vec![
+                            Span::styled("License:   ", Style::default().fg(Color::Cyan)),
+                            Span::styled(license, license_color),
+                        ]));
+
+                        // License compatibility with project
+                        if let Some(repo_license) = &repo.license {
+                            let repo_license_obj = reposcout_core::License::from_str(repo_license);
+                            let compat = license_obj.check_compatibility(&repo_license_obj);
+
+                            if compat != reposcout_core::LicenseCompatibility::Compatible {
+                                lines.push(Line::from(""));
+                                let compat_msg = license_obj.compatibility_message(&repo_license_obj);
+                                let compat_color = match compat {
+                                    reposcout_core::LicenseCompatibility::Warning => Color::Yellow,
+                                    reposcout_core::LicenseCompatibility::Incompatible => Color::Red,
+                                    _ => Color::Gray,
+                                };
+                                lines.push(Line::from(vec![
+                                    Span::styled(compat_msg, compat_color),
+                                ]));
+                            }
+                        }
+                    }
+                }
+
+                // Quick actions section
+                lines.push(Line::from(""));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("━".repeat(60), Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("Quick Actions", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                ]));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("  Press ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("ENTER", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(" to open package registry in browser", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  Press ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("c", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(" to copy install command to clipboard", Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+        } else {
+            // Loading/detecting packages
+            lines.push(Line::from(""));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("  🔍 Detecting package manager...", Style::default().fg(Color::Yellow)),
+            ]));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("  Analyzing repository language and structure", Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("No repository selected", Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+
+    lines
+}
+
+/// Format download count with K/M/B suffixes
+fn format_downloads(count: u64) -> String {
+    if count >= 1_000_000_000 {
+        format!("{:.1}B", count as f64 / 1_000_000_000.0)
+    } else if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    } else if count >= 1_000 {
+        format!("{:.1}K", count as f64 / 1_000.0)
+    } else {
+        count.to_string()
     }
 }
