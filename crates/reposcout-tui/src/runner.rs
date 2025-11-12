@@ -80,7 +80,6 @@ where
                                                 let results_for_indexing = results.clone();
                                                 tokio::spawn(async move {
                                                     use reposcout_semantic::{SemanticSearchEngine, SemanticConfig};
-                                                    use std::path::PathBuf;
 
                                                     // Get semantic index path (same pattern as CLI)
                                                     if let Some(cache_dir) = dirs_next::cache_dir() {
@@ -284,6 +283,10 @@ where
                                             }
                                         }
                                     }
+                                    SearchMode::Portfolio => {
+                                        // Portfolio mode doesn't perform searches
+                                        app.loading = false;
+                                    }
                                 }
                             }
                         }
@@ -467,6 +470,10 @@ where
                                                 app.loading = false;
                                             }
                                         }
+                                    }
+                                    SearchMode::Portfolio => {
+                                        // Portfolio mode doesn't use search history
+                                        app.loading = false;
                                     }
                                 }
                             }
@@ -724,8 +731,7 @@ where
                                 terminal.draw(|f| crate::ui::render(f, &mut app))?;
 
                                 // Execute trending search
-                                use reposcout_core::{TrendingFilters as CoreFilters, TrendingFinder, TrendingPeriod as CorePeriod};
-                                use reposcout_core::providers::{GitHubProvider, GitLabProvider, BitbucketProvider};
+                                use reposcout_core::TrendingPeriod as CorePeriod;
 
                                 // Convert TUI period to core period
                                 let period = match app.trending_filters.period {
@@ -1165,7 +1171,7 @@ where
                                         app.scroll_code_down();
                                     }
                                 }
-                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic | SearchMode::Portfolio => {
                                     // If in README preview mode, scroll instead of navigating
                                     if app.preview_mode == PreviewMode::Readme {
                                         app.scroll_readme_down();
@@ -1191,7 +1197,7 @@ where
                                         app.scroll_code_up();
                                     }
                                 }
-                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic | SearchMode::Portfolio => {
                                     // If in README preview mode, scroll instead of navigating
                                     if app.preview_mode == PreviewMode::Readme {
                                         app.scroll_readme_up();
@@ -1229,7 +1235,7 @@ where
                                         }
                                     }
                                 }
-                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic | SearchMode::Portfolio => {
                                     // Check if we're in Package preview mode
                                     if app.preview_mode == crate::PreviewMode::Package {
                                         // Open package registry in browser

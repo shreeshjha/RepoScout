@@ -1,5 +1,5 @@
 // Sparkline rendering utilities
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Utc};
 
 /// Generate a sparkline visualization using Unicode block characters
 /// Characters: ▁ ▂ ▃ ▄ ▅ ▆ ▇ █

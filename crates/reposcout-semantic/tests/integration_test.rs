@@ -2,7 +2,6 @@ use reposcout_core::models::{Platform, Repository};
 use reposcout_semantic::{
     EmbeddingGenerator, SemanticConfig, SemanticSearchEngine, VectorIndex,
 };
-use std::sync::Arc;
 use tempfile::TempDir;
 
 fn create_test_repo(name: &str, description: &str, language: &str) -> Repository {

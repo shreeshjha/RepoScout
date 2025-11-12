@@ -5,10 +5,12 @@ pub mod export;
 pub mod health;
 pub mod models;
 pub mod packages;
+pub mod portfolio;
 pub mod providers;
 pub mod registries;
 pub mod search;
 pub mod search_with_cache;
+pub mod theme;
 pub mod token_store;
 pub mod trending;
 
@@ -17,8 +19,10 @@ pub use error::Error;
 pub use export::{ExportFormat, Exporter};
 pub use health::{HealthCalculator, HealthMetrics, HealthStatus, MaintenanceLevel};
 pub use packages::{License, LicenseCompatibility, PackageDetector, PackageInfo, PackageManager};
+pub use portfolio::{Portfolio, PortfolioColor, PortfolioIcon, PortfolioManager};
 pub use registries::RegistryClient;
 pub use search_with_cache::CachedSearchEngine;
+pub use theme::{Color, Theme, ThemeColors};
 pub use token_store::TokenStore;
 pub use trending::{TrendingFilters, TrendingFinder, TrendingPeriod};
 

@@ -373,7 +373,7 @@ impl GitHubClient {
             }
 
             if !response.status().is_success() {
-                let body = response.text().await.unwrap_or_default();
+                let _body = response.text().await.unwrap_or_default();
                 return Err(GitHubError::RequestFailed(format!(
                     "Failed to fetch notifications: {}",
                     status
@@ -410,7 +410,7 @@ impl GitHubClient {
             }
 
             if !response.status().is_success() {
-                let body = response.text().await.unwrap_or_default();
+                let _body = response.text().await.unwrap_or_default();
                 return Err(GitHubError::RequestFailed(format!(
                     "Failed to mark notification as read: {}",
                     status
@@ -449,7 +449,7 @@ impl GitHubClient {
 
             // GitHub returns 205 or 202 for this endpoint
             if status != reqwest::StatusCode::RESET_CONTENT && status != reqwest::StatusCode::ACCEPTED {
-                let body = response.text().await.unwrap_or_default();
+                let _body = response.text().await.unwrap_or_default();
                 return Err(GitHubError::RequestFailed(format!(
                     "Failed to mark all notifications as read: {}",
                     status
@@ -469,7 +469,7 @@ impl GitHubClient {
                 if let Ok(reset_str) = reset.to_str() {
                     if let Ok(reset_timestamp) = reset_str.parse::<i64>() {
                         let reset_at = DateTime::from_timestamp(reset_timestamp, 0)
-                            .unwrap_or_else(|| Utc::now());
+                            .unwrap_or_else(Utc::now);
                         return Err(GitHubError::RateLimitExceeded { reset_at });
                     }
                 }

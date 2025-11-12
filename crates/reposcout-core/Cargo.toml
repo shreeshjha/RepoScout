@@ -25,6 +25,7 @@ futures = "0.3"
 dirs = "5.0"
 hostname = "0.4"
 whoami = "1.5"
+uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [dev-dependencies]
 mockall = { workspace = true }

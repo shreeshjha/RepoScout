@@ -341,8 +341,10 @@ impl BitbucketClient {
 /// Bitbucket API repository search response
 #[derive(Debug, Deserialize)]
 struct SearchResponse {
+    #[allow(dead_code)]
     values: Vec<BitbucketRepository>,
     #[serde(default)]
+    #[allow(dead_code)]
     next: Option<String>,
 }
 
@@ -351,6 +353,7 @@ struct SearchResponse {
 struct CodeSearchResponse {
     values: Vec<CodeSearchItem>,
     #[serde(default)]
+    #[allow(dead_code)]
     next: Option<String>,
 }
 

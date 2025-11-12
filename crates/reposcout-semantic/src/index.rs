@@ -47,7 +47,7 @@ impl VectorIndex {
             multi: false, // Single-threaded index
         };
 
-        let mut index = USearchIndex::new(&options).map_err(|e| {
+        let index = USearchIndex::new(&options).map_err(|e| {
             SemanticError::IndexError(format!("Failed to create usearch index: {}", e))
         })?;
 

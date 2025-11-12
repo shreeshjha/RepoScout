@@ -11,6 +11,7 @@ pub enum SearchMode {
     Trending,       // Browsing trending repositories
     Notifications,  // Viewing GitHub notifications
     Semantic,       // Semantic search with natural language
+    Portfolio,      // Viewing portfolio/watchlist
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -265,6 +266,15 @@ pub struct App {
     pub notifications_loading: bool,
     pub notifications_show_all: bool, // false = unread only, true = all
     pub notifications_participating: bool, // filter to participating only
+    // Theme state
+    pub current_theme: reposcout_core::Theme,
+    pub show_theme_selector: bool,
+    pub theme_selector_index: usize,
+    // Portfolio/Watchlist state
+    pub portfolio_manager: reposcout_core::PortfolioManager,
+    pub selected_portfolio_id: Option<String>,
+    pub show_portfolio_manager: bool,
+    pub portfolio_cursor: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -339,6 +349,13 @@ impl App {
             notifications_loading: false,
             notifications_show_all: false,
             notifications_participating: true,
+            current_theme: reposcout_core::Theme::default(),
+            show_theme_selector: false,
+            theme_selector_index: 0,
+            portfolio_manager: reposcout_core::PortfolioManager::new(),
+            selected_portfolio_id: None,
+            show_portfolio_manager: false,
+            portfolio_cursor: 0,
         }
     }
 
@@ -808,14 +825,15 @@ impl App {
         }
     }
 
-    /// Toggle between repository, code, trending, notifications, and semantic search modes
+    /// Toggle between repository, code, trending, notifications, semantic, and portfolio modes
     pub fn toggle_search_mode(&mut self) {
         self.search_mode = match self.search_mode {
             SearchMode::Repository => SearchMode::Code,
             SearchMode::Code => SearchMode::Trending,
             SearchMode::Trending => SearchMode::Notifications,
             SearchMode::Notifications => SearchMode::Semantic,
-            SearchMode::Semantic => SearchMode::Repository,
+            SearchMode::Semantic => SearchMode::Portfolio,
+            SearchMode::Portfolio => SearchMode::Repository,
         };
         // Clear results and errors when switching modes
         self.code_results.clear();
@@ -1151,6 +1169,95 @@ impl App {
     /// Get currently selected notification
     pub fn get_selected_notification(&self) -> Option<&reposcout_core::Notification> {
         self.notifications.get(self.notifications_selected_index)
+    }
+
+    // Theme management methods
+
+    /// Change to a different theme
+    pub fn set_theme(&mut self, theme: reposcout_core::Theme) {
+        self.current_theme = theme;
+    }
+
+    /// Get the current theme
+    pub fn get_theme(&self) -> &reposcout_core::Theme {
+        &self.current_theme
+    }
+
+    /// Cycle to next theme
+    pub fn next_theme(&mut self) {
+        let themes = reposcout_core::Theme::all_themes();
+        if let Some(current_idx) = themes.iter().position(|t| t.name == self.current_theme.name) {
+            let next_idx = (current_idx + 1) % themes.len();
+            self.current_theme = themes[next_idx].clone();
+        }
+    }
+
+    /// Cycle to previous theme
+    pub fn previous_theme(&mut self) {
+        let themes = reposcout_core::Theme::all_themes();
+        if let Some(current_idx) = themes.iter().position(|t| t.name == self.current_theme.name) {
+            let prev_idx = if current_idx == 0 { themes.len() - 1 } else { current_idx - 1 };
+            self.current_theme = themes[prev_idx].clone();
+        }
+    }
+
+    // Portfolio/Watchlist management methods
+
+    /// Add current repository to a portfolio
+    pub fn add_to_portfolio(&mut self, portfolio_id: &str, notes: Option<String>, tags: Vec<String>) -> Result<(), String> {
+        if let Some(repo) = self.selected_repository().cloned() {
+            self.portfolio_manager
+                .add_repo_to_portfolio(portfolio_id, repo, notes, tags)
+                .map_err(|e| e.to_string())
+        } else {
+            Err("No repository selected".to_string())
+        }
+    }
+
+    /// Remove current repository from a portfolio
+    pub fn remove_from_portfolio(&mut self, portfolio_id: &str) -> Result<(), String> {
+        if let Some(repo) = self.selected_repository() {
+            let repo_name = repo.full_name.clone();
+            self.portfolio_manager
+                .remove_repo_from_portfolio(portfolio_id, &repo_name)
+                .map_err(|e| e.to_string())
+        } else {
+            Err("No repository selected".to_string())
+        }
+    }
+
+    /// Create a new portfolio
+    pub fn create_portfolio(
+        &mut self,
+        name: String,
+        description: Option<String>,
+        color: reposcout_core::PortfolioColor,
+        icon: reposcout_core::PortfolioIcon,
+    ) -> reposcout_core::Portfolio {
+        self.portfolio_manager.create_portfolio(name, description, color, icon)
+    }
+
+    /// Get all portfolios
+    pub fn get_portfolios(&self) -> Vec<&reposcout_core::Portfolio> {
+        self.portfolio_manager.list_portfolios()
+    }
+
+    /// Get selected portfolio
+    pub fn get_selected_portfolio(&self) -> Option<&reposcout_core::Portfolio> {
+        if let Some(id) = &self.selected_portfolio_id {
+            self.portfolio_manager.get_portfolio(id)
+        } else {
+            None
+        }
+    }
+
+    /// Check if current repo is in any portfolios
+    pub fn current_repo_portfolios(&self) -> Vec<&reposcout_core::Portfolio> {
+        if let Some(repo) = self.selected_repository() {
+            self.portfolio_manager.find_repo_portfolios(&repo.full_name)
+        } else {
+            Vec::new()
+        }
     }
 }
 

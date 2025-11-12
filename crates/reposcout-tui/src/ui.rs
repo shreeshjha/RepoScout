@@ -8,7 +8,6 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
-use chrono::Datelike;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
 use syntect::parsing::SyntaxSet;
@@ -106,6 +105,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             // Render preview pane with semantic scores
             render_preview(frame, app, content_chunks[1]);
         }
+        SearchMode::Portfolio => {
+            // Render portfolio list
+            crate::portfolio_ui::render_portfolio_list(frame, app, content_chunks[0]);
+            // Render portfolio details
+            crate::portfolio_ui::render_portfolio_detail(frame, app, content_chunks[1]);
+        }
     }
 
     // Render fuzzy search overlay if active
@@ -187,6 +192,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
             SearchMode::Trending => "Trend",
             SearchMode::Notifications => "Notif",
             SearchMode::Semantic => "Semantic",
+            SearchMode::Portfolio => "Portfolio",
         }
     } else {
         match app.search_mode {
@@ -195,6 +201,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
             SearchMode::Trending => "Trending Repos",
             SearchMode::Notifications => "Notifications",
             SearchMode::Semantic => "Semantic Search (AI)",
+            SearchMode::Portfolio => "Portfolio/Watchlist",
         }
     };
     let mode_color = match app.search_mode {
@@ -203,6 +210,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         SearchMode::Trending => Color::Magenta,
         SearchMode::Notifications => Color::Yellow,
         SearchMode::Semantic => Color::LightBlue,
+        SearchMode::Portfolio => Color::Rgb(249, 226, 175), // Soft yellow/gold
     };
 
     // Build platform status indicators (adaptive based on width)
@@ -329,6 +337,12 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
         }
         SearchMode::Semantic => {
             ("Semantic Search (AI) - ESC to navigate, / to search", app.search_input.as_str().to_string())
+        }
+        SearchMode::Portfolio => {
+            let portfolio_count = app.portfolio_manager.list_portfolios().len();
+            let repo_count = app.portfolio_manager.total_repo_count();
+            ("📁 Portfolio/Watchlist (P to manage, N to create new)",
+             format!("{} portfolios | {} repos watched", portfolio_count, repo_count))
         }
     };
 
@@ -1486,6 +1500,9 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                             Span::styled("j/k: navigate | /: search | Ctrl+R: history | Ctrl+S: settings | f: fuzzy | M: mode | TAB: tabs | b: bookmark | q: quit", Style::default().fg(Color::LightBlue))
                         }
                     }
+                    SearchMode::Portfolio => {
+                        Span::styled("j/k: navigate | N: new portfolio | +: add repo | -: remove | ENTER: view | T: theme | M: mode | q: quit", Style::default().fg(Color::Rgb(249, 226, 175)))
+                    }
                 }
             }
         }]
@@ -2362,7 +2379,7 @@ fn get_freshness_color(days: i64) -> Color {
 
 /// Render settings popup for token management
 fn render_settings_popup(app: &App, frame: &mut Frame, area: Rect) {
-    use ratatui::layout::{Constraint, Direction, Layout, Alignment};
+    use ratatui::layout::{Constraint, Direction, Layout};
 
     // Create centered popup (60% width, 50% height)
     let popup_area = centered_rect(60, 50, area);
@@ -2826,7 +2843,7 @@ fn render_package_preview(app: &App) -> Vec<Line> {
 
                     // License
                     if let Some(license) = &pkg.license {
-                        let license_obj = reposcout_core::License::from_str(license);
+                        let license_obj = reposcout_core::License::parse_license(license);
                         let license_color = match license_obj {
                             reposcout_core::License::MIT | reposcout_core::License::Apache2 |
                             reposcout_core::License::BSD2 | reposcout_core::License::BSD3 => Color::Green,
@@ -2843,7 +2860,7 @@ fn render_package_preview(app: &App) -> Vec<Line> {
 
                         // License compatibility with project
                         if let Some(repo_license) = &repo.license {
-                            let repo_license_obj = reposcout_core::License::from_str(repo_license);
+                            let repo_license_obj = reposcout_core::License::parse_license(repo_license);
                             let compat = license_obj.check_compatibility(&repo_license_obj);
 
                             if compat != reposcout_core::LicenseCompatibility::Compatible {

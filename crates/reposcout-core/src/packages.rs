@@ -96,7 +96,7 @@ impl PackageManager {
             PackageManager::NuGet => format!("dotnet add package {}", package_name),
             PackageManager::Pub => format!("flutter pub add {}", package_name),
             PackageManager::CocoaPods => format!("pod '{}'", package_name),
-            PackageManager::Swift => format!(".package(url: \"...\", from: \"...\")", ),
+            PackageManager::Swift => ".package(url: \"...\", from: \"...\")".to_string(),
             PackageManager::Hex => format!("{{:{}, \"~> x.x\"}}", package_name),
         }
     }
@@ -182,20 +182,20 @@ impl PackageDetector {
         // Check topics for package-related keywords
         for topic in &repo.topics {
             let topic_lower = topic.to_lowercase();
-            if topic_lower.contains("cargo") || topic_lower.contains("crate") {
-                if !managers.contains(&PackageManager::Cargo) {
-                    managers.push(PackageManager::Cargo);
-                }
+            if (topic_lower.contains("cargo") || topic_lower.contains("crate"))
+                && !managers.contains(&PackageManager::Cargo)
+            {
+                managers.push(PackageManager::Cargo);
             }
-            if topic_lower.contains("npm") || topic_lower.contains("node") {
-                if !managers.contains(&PackageManager::Npm) {
-                    managers.push(PackageManager::Npm);
-                }
+            if (topic_lower.contains("npm") || topic_lower.contains("node"))
+                && !managers.contains(&PackageManager::Npm)
+            {
+                managers.push(PackageManager::Npm);
             }
-            if topic_lower.contains("pypi") || topic_lower.contains("pip") {
-                if !managers.contains(&PackageManager::PyPI) {
-                    managers.push(PackageManager::PyPI);
-                }
+            if (topic_lower.contains("pypi") || topic_lower.contains("pip"))
+                && !managers.contains(&PackageManager::PyPI)
+            {
+                managers.push(PackageManager::PyPI);
             }
         }
 
@@ -208,7 +208,7 @@ impl PackageDetector {
         // Extract repo name from full_name (owner/repo → repo)
         let repo_name = repo.full_name
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or(&repo.full_name)
             .to_string();
 
@@ -269,7 +269,7 @@ pub enum License {
 
 impl License {
     /// Parse license from string
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_license(s: &str) -> Self {
         let s_lower = s.to_lowercase();
         if s_lower.contains("mit") {
             License::MIT
@@ -405,9 +405,9 @@ mod tests {
 
     #[test]
     fn test_license_parsing() {
-        assert_eq!(License::from_str("MIT License"), License::MIT);
-        assert_eq!(License::from_str("Apache-2.0"), License::Apache2);
-        assert_eq!(License::from_str("GPL-3.0"), License::GPL3);
+        assert_eq!(License::parse_license("MIT License"), License::MIT);
+        assert_eq!(License::parse_license("Apache-2.0"), License::Apache2);
+        assert_eq!(License::parse_license("GPL-3.0"), License::GPL3);
     }
 
     #[test]

@@ -95,21 +95,12 @@ impl<'a> TrendingFinder<'a> {
         let results = join_all(searches).await;
 
         let mut repos = Vec::new();
-        for result in results {
-            if let Ok(mut r) = result {
-                repos.append(&mut r);
-            }
+        for mut r in results.into_iter().flatten() {
+            repos.append(&mut r);
         }
 
         // Sort by stars (descending) - these are the "hottest" repos
         repos.sort_by(|a, b| b.stars.cmp(&a.stars));
-
-        // Calculate star velocity (stars per day) for better trending metric
-        let days = match period {
-            TrendingPeriod::Daily => 1.0,
-            TrendingPeriod::Weekly => 7.0,
-            TrendingPeriod::Monthly => 30.0,
-        };
 
         // Enrich with velocity calculation (as metadata in description if needed)
         for repo in &mut repos {

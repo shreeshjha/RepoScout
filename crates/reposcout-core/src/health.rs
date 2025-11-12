@@ -154,6 +154,7 @@ pub struct HealthCalculator;
 
 impl HealthCalculator {
     /// Calculate health metrics for a repository
+    #[allow(clippy::too_many_arguments)]
     pub fn calculate(
         stars: u32,
         forks: u32,

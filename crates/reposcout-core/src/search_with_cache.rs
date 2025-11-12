@@ -21,6 +21,7 @@ impl CachedSearchEngine {
     pub fn with_cache(cache: CacheManager) -> Self {
         Self {
             providers: Vec::new(),
+            #[allow(clippy::arc_with_non_send_sync)]
             cache: Some(Arc::new(cache)),
         }
     }
@@ -127,10 +128,8 @@ impl CachedSearchEngine {
         let results = join_all(searches).await;
 
         let mut repos = Vec::new();
-        for result in results {
-            if let Ok(mut r) = result {
-                repos.append(&mut r);
-            }
+        for mut r in results.into_iter().flatten() {
+            repos.append(&mut r);
         }
 
         Ok(repos)

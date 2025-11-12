@@ -2,7 +2,7 @@
 // Supports crates.io, npmjs.com, PyPI, and more
 
 use crate::packages::{PackageInfo, PackageManager};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// Crates.io API response for crate metadata
 #[derive(Debug, Deserialize)]
@@ -13,6 +13,7 @@ struct CratesIoResponse {
 
 #[derive(Debug, Deserialize)]
 struct CrateData {
+    #[allow(dead_code)]
     name: String,
     max_version: String,
     downloads: u64,
@@ -23,6 +24,7 @@ struct CrateData {
 /// npm registry API response
 #[derive(Debug, Deserialize)]
 struct NpmResponse {
+    #[allow(dead_code)]
     name: String,
     description: Option<String>,
     #[serde(rename = "dist-tags")]
@@ -43,6 +45,7 @@ struct PyPIResponse {
 
 #[derive(Debug, Deserialize)]
 struct PyPIInfo {
+    #[allow(dead_code)]
     name: String,
     version: String,
     summary: Option<String>,

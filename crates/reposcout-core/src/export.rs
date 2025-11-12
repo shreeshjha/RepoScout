@@ -48,7 +48,7 @@ impl Exporter {
             .and_then(|e| e.to_str())
             .and_then(ExportFormat::from_extension)
             .ok_or_else(|| Error::ConfigError(
-                format!("Could not determine export format from extension. Use .json, .csv, or .md")
+                "Could not determine export format from extension. Use .json, .csv, or .md".to_string()
             ))?;
 
         Self::export_to_file_with_format(repos, path, format)
