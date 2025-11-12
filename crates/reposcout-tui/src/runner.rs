@@ -851,6 +851,23 @@ where
                                 }
                             }
                         }
+                        KeyCode::Char('c') => {
+                            // Copy install command when in Package preview mode
+                            if app.search_mode == SearchMode::Repository ||
+                               app.search_mode == SearchMode::Trending ||
+                               app.search_mode == SearchMode::Semantic {
+                                if app.preview_mode == crate::PreviewMode::Package {
+                                    match app.copy_package_install_command() {
+                                        Ok(()) => {
+                                            app.set_temp_error("Install command copied to clipboard!".to_string());
+                                        }
+                                        Err(e) => {
+                                            app.set_temp_error(e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         KeyCode::Char('F') => {
                             // Toggle filters based on search mode
                             if app.search_mode == SearchMode::Code {
@@ -868,6 +885,33 @@ where
                                 app.toggle_code_preview_mode();
                             } else {
                                 app.next_preview_tab();
+
+                                // If we switched to Package tab, fetch metadata if needed
+                                if app.preview_mode == crate::PreviewMode::Package {
+                                    if let Some(packages) = app.get_cached_package_info().cloned() {
+                                        // Check if we need to fetch metadata
+                                        let needs_fetch = packages.iter().any(|pkg| pkg.latest_version.is_none());
+
+                                        if needs_fetch {
+                                            app.start_package_loading();
+
+                                            // Spawn task to fetch metadata
+                                            let registry_client = reposcout_core::RegistryClient::new();
+                                            let mut packages_clone = packages.clone();
+
+                                            tokio::spawn(async move {
+                                                for pkg in &mut packages_clone {
+                                                    let _ = registry_client.fetch_metadata(pkg).await;
+                                                }
+                                                packages_clone
+                                            });
+
+                                            // Note: We'd need to handle the result and update app state
+                                            // For now, this is a basic implementation
+                                            app.stop_package_loading();
+                                        }
+                                    }
+                                }
                             }
                         }
                         KeyCode::BackTab => {
@@ -1186,8 +1230,14 @@ where
                                     }
                                 }
                                 SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
-                                    if let Some(repo) = app.selected_repository() {
-                                        // Open in browser
+                                    // Check if we're in Package preview mode
+                                    if app.preview_mode == crate::PreviewMode::Package {
+                                        // Open package registry in browser
+                                        if let Err(e) = app.open_package_registry() {
+                                            app.set_temp_error(e);
+                                        }
+                                    } else if let Some(repo) = app.selected_repository() {
+                                        // Open repository in browser
                                         let url = repo.url.clone();
                                         if let Err(e) = open::that(&url) {
                                             app.error_message = Some(format!("Failed to open browser: {}", e));

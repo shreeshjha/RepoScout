@@ -771,6 +771,43 @@ impl App {
         }
     }
 
+    /// Copy package install command to clipboard
+    pub fn copy_package_install_command(&mut self) -> Result<(), String> {
+        if let Some(packages) = self.get_cached_package_info() {
+            if let Some(first_pkg) = packages.first() {
+                match arboard::Clipboard::new() {
+                    Ok(mut clipboard) => {
+                        if let Err(e) = clipboard.set_text(&first_pkg.install_command) {
+                            return Err(format!("Failed to copy to clipboard: {}", e));
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(format!("Failed to access clipboard: {}", e)),
+                }
+            } else {
+                Err("No package detected".to_string())
+            }
+        } else {
+            Err("No package info available".to_string())
+        }
+    }
+
+    /// Open package registry in browser
+    pub fn open_package_registry(&self) -> Result<(), String> {
+        if let Some(packages) = self.get_cached_package_info() {
+            if let Some(first_pkg) = packages.first() {
+                if let Err(e) = open::that(&first_pkg.registry_url) {
+                    return Err(format!("Failed to open browser: {}", e));
+                }
+                Ok(())
+            } else {
+                Err("No package detected".to_string())
+            }
+        } else {
+            Err("No package info available".to_string())
+        }
+    }
+
     /// Toggle between repository, code, trending, notifications, and semantic search modes
     pub fn toggle_search_mode(&mut self) {
         self.search_mode = match self.search_mode {

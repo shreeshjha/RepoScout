@@ -25,3 +25,4 @@ fuzzy-matcher = { workspace = true }
 syntect = { workspace = true }
 open = "5.3"
 dirs-next = "2.0"
+arboard = "3.4"
