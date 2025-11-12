@@ -71,5 +71,6 @@ fn bitbucket_to_repo(bb: BitbucketRepository) -> Repository {
             .unwrap_or_else(|| "main".to_string()),
         is_archived: false, // Would need additional API call
         is_private: bb.is_private,
+        health: None,
     }
 }

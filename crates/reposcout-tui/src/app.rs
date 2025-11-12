@@ -6,8 +6,11 @@ use ratatui::widgets::ListState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
-    Repository,  // Searching for repositories (default)
-    Code,        // Searching for code
+    Repository,     // Searching for repositories (default)
+    Code,           // Searching for code
+    Trending,       // Browsing trending repositories
+    Notifications,  // Viewing GitHub notifications
+    Semantic,       // Semantic search with natural language
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +21,8 @@ pub enum InputMode {
     EditingFilter, // Actively typing in a filter field
     FuzzySearch,   // Fuzzy filtering current results
     HistoryPopup,  // Browsing search history
+    Settings,      // Settings/token management popup
+    TokenInput,    // Entering API token
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +31,14 @@ pub enum PreviewMode {
     Readme,        // Show README content
     Activity,      // Show repository activity/commits
     Dependencies,  // Show dependency analysis
+    Package,       // Show package manager info and install commands
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodePreviewMode {
+    Code,       // Show highlighted code with context
+    Raw,        // Show raw text
+    FileInfo,   // Show file metadata and repository info
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +149,52 @@ impl CodeSearchFilters {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrendingPeriod {
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+impl TrendingPeriod {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TrendingPeriod::Daily => "Daily",
+            TrendingPeriod::Weekly => "Weekly",
+            TrendingPeriod::Monthly => "Monthly",
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            TrendingPeriod::Daily => TrendingPeriod::Weekly,
+            TrendingPeriod::Weekly => TrendingPeriod::Monthly,
+            TrendingPeriod::Monthly => TrendingPeriod::Daily,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TrendingFilters {
+    pub period: TrendingPeriod,
+    pub language: Option<String>,
+    pub min_stars: u32,
+    pub topic: Option<String>,
+    pub sort_by_velocity: bool,
+}
+
+impl Default for TrendingFilters {
+    fn default() -> Self {
+        Self {
+            period: TrendingPeriod::Weekly,
+            language: None,
+            min_stars: 100,
+            topic: None,
+            sort_by_velocity: false,
+        }
+    }
+}
+
 pub struct App {
     pub should_quit: bool,
     pub input_mode: InputMode,
@@ -170,11 +229,19 @@ pub struct App {
     // Dependency analysis state
     pub dependencies_cache: std::collections::HashMap<String, Option<DependencyInfo>>,
     pub dependencies_loading: bool,
+    // Package manager integration
+    pub package_info_cache: std::collections::HashMap<String, Vec<reposcout_core::PackageInfo>>,
+    pub package_loading: bool,
     // Code search state
     pub code_results: Vec<CodeSearchResult>,
     pub code_filters: CodeSearchFilters,
     pub code_selected_index: usize,
     pub code_scroll: u16,
+    pub code_preview_mode: CodePreviewMode,
+    pub show_code_filters: bool,
+    pub code_filter_cursor: usize,
+    pub code_filter_edit_buffer: String,
+    pub code_match_index: usize, // Which match within a file to highlight
     // Full file content cache for code preview
     pub code_content_cache: std::collections::HashMap<String, String>,
     // Platform status tracking
@@ -182,6 +249,22 @@ pub struct App {
     // Search history popup state
     pub search_history: Vec<SearchHistoryEntry>,
     pub history_selected_index: usize,
+    // Trending state
+    pub trending_filters: TrendingFilters,
+    pub show_trending_options: bool,
+    pub trending_option_cursor: usize,
+    // Settings/Token management state
+    pub show_settings: bool,
+    pub settings_cursor: usize,
+    pub token_input_buffer: String,
+    pub token_input_platform: String, // "github", "gitlab", or "bitbucket"
+    pub token_status_message: Option<String>,
+    // Notification state
+    pub notifications: Vec<reposcout_core::Notification>,
+    pub notifications_selected_index: usize,
+    pub notifications_loading: bool,
+    pub notifications_show_all: bool, // false = unread only, true = all
+    pub notifications_participating: bool, // filter to participating only
 }
 
 #[derive(Debug, Clone)]
@@ -224,10 +307,17 @@ impl App {
             fuzzy_match_count: 0,
             dependencies_cache: std::collections::HashMap::new(),
             dependencies_loading: false,
+            package_info_cache: std::collections::HashMap::new(),
+            package_loading: false,
             code_results: Vec::new(),
             code_filters: CodeSearchFilters::default(),
             code_selected_index: 0,
             code_scroll: 0,
+            code_preview_mode: CodePreviewMode::Code,
+            show_code_filters: false,
+            code_filter_cursor: 0,
+            code_filter_edit_buffer: String::new(),
+            code_match_index: 0,
             code_content_cache: std::collections::HashMap::new(),
             platform_status: PlatformStatus {
                 github_configured: true,  // Always available (public repos don't need auth)
@@ -236,6 +326,19 @@ impl App {
             },
             search_history: Vec::new(),
             history_selected_index: 0,
+            trending_filters: TrendingFilters::default(),
+            show_trending_options: false,
+            trending_option_cursor: 0,
+            show_settings: false,
+            settings_cursor: 0,
+            token_input_buffer: String::new(),
+            token_input_platform: String::new(),
+            token_status_message: None,
+            notifications: Vec::new(),
+            notifications_selected_index: 0,
+            notifications_loading: false,
+            notifications_show_all: false,
+            notifications_participating: true,
         }
     }
 
@@ -349,7 +452,8 @@ impl App {
             PreviewMode::Stats => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Dependencies,
-            PreviewMode::Dependencies => PreviewMode::Stats,
+            PreviewMode::Dependencies => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Stats,
         };
     }
 
@@ -358,14 +462,23 @@ impl App {
             PreviewMode::Stats => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Dependencies,
-            PreviewMode::Dependencies => PreviewMode::Stats,
+            PreviewMode::Dependencies => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Stats,
         };
         self.reset_readme_scroll();
+
+        // Auto-detect package info when switching to Package tab
+        if self.preview_mode == PreviewMode::Package {
+            if self.get_cached_package_info().is_none() {
+                self.detect_package_info();
+            }
+        }
     }
 
     pub fn previous_preview_tab(&mut self) {
         self.preview_mode = match self.preview_mode {
-            PreviewMode::Stats => PreviewMode::Dependencies,
+            PreviewMode::Stats => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Dependencies,
             PreviewMode::Dependencies => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Stats,
@@ -615,17 +728,102 @@ impl App {
         self.dependencies_loading = false;
     }
 
-    /// Toggle between repository and code search mode
+    /// Get cached package info for current repository
+    pub fn get_cached_package_info(&self) -> Option<&Vec<reposcout_core::PackageInfo>> {
+        if let Some(repo) = self.selected_repository() {
+            self.package_info_cache.get(&repo.full_name)
+        } else {
+            None
+        }
+    }
+
+    /// Cache package info for a repository
+    pub fn cache_package_info(&mut self, repo_name: String, packages: Vec<reposcout_core::PackageInfo>) {
+        self.package_info_cache.insert(repo_name, packages);
+    }
+
+    /// Start package loading
+    pub fn start_package_loading(&mut self) {
+        self.package_loading = true;
+    }
+
+    /// Stop package loading
+    pub fn stop_package_loading(&mut self) {
+        self.package_loading = false;
+    }
+
+    /// Detect and cache package info for current repository
+    pub fn detect_package_info(&mut self) {
+        if let Some(repo) = self.selected_repository() {
+            let managers = reposcout_core::PackageDetector::detect(repo);
+
+            let mut packages = Vec::new();
+            for manager in managers {
+                if let Some(pkg_name) = reposcout_core::PackageDetector::extract_package_name(repo, manager) {
+                    let pkg_info = reposcout_core::PackageInfo::new(manager, pkg_name);
+                    packages.push(pkg_info);
+                }
+            }
+
+            if !packages.is_empty() {
+                self.cache_package_info(repo.full_name.clone(), packages);
+            }
+        }
+    }
+
+    /// Copy package install command to clipboard
+    pub fn copy_package_install_command(&mut self) -> Result<(), String> {
+        if let Some(packages) = self.get_cached_package_info() {
+            if let Some(first_pkg) = packages.first() {
+                match arboard::Clipboard::new() {
+                    Ok(mut clipboard) => {
+                        if let Err(e) = clipboard.set_text(&first_pkg.install_command) {
+                            return Err(format!("Failed to copy to clipboard: {}", e));
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(format!("Failed to access clipboard: {}", e)),
+                }
+            } else {
+                Err("No package detected".to_string())
+            }
+        } else {
+            Err("No package info available".to_string())
+        }
+    }
+
+    /// Open package registry in browser
+    pub fn open_package_registry(&self) -> Result<(), String> {
+        if let Some(packages) = self.get_cached_package_info() {
+            if let Some(first_pkg) = packages.first() {
+                if let Err(e) = open::that(&first_pkg.registry_url) {
+                    return Err(format!("Failed to open browser: {}", e));
+                }
+                Ok(())
+            } else {
+                Err("No package detected".to_string())
+            }
+        } else {
+            Err("No package info available".to_string())
+        }
+    }
+
+    /// Toggle between repository, code, trending, notifications, and semantic search modes
     pub fn toggle_search_mode(&mut self) {
         self.search_mode = match self.search_mode {
             SearchMode::Repository => SearchMode::Code,
-            SearchMode::Code => SearchMode::Repository,
+            SearchMode::Code => SearchMode::Trending,
+            SearchMode::Trending => SearchMode::Notifications,
+            SearchMode::Notifications => SearchMode::Semantic,
+            SearchMode::Semantic => SearchMode::Repository,
         };
         // Clear results and errors when switching modes
         self.code_results.clear();
         self.results.clear();
+        self.notifications.clear();
         self.code_selected_index = 0;
         self.selected_index = 0;
+        self.notifications_selected_index = 0;
         self.error_message = None;
         self.loading = false;
     }
@@ -673,6 +871,68 @@ impl App {
     /// Get code search query with filters
     pub fn get_code_search_query(&self) -> String {
         self.code_filters.build_query(&self.search_input)
+    }
+
+    /// Toggle code filter panel visibility
+    pub fn toggle_code_filters(&mut self) {
+        self.show_code_filters = !self.show_code_filters;
+        if self.show_code_filters {
+            self.code_filter_cursor = 0;
+        }
+    }
+
+    /// Navigate to next code filter field
+    pub fn next_code_filter(&mut self) {
+        self.code_filter_cursor = (self.code_filter_cursor + 1).min(3); // 4 filter fields
+    }
+
+    /// Navigate to previous code filter field
+    pub fn previous_code_filter(&mut self) {
+        if self.code_filter_cursor > 0 {
+            self.code_filter_cursor -= 1;
+        }
+    }
+
+    /// Clear current code filter
+    pub fn clear_current_code_filter(&mut self) {
+        match self.code_filter_cursor {
+            0 => self.code_filters.language = None,
+            1 => self.code_filters.repo = None,
+            2 => self.code_filters.path = None,
+            3 => self.code_filters.extension = None,
+            _ => {}
+        }
+    }
+
+    /// Toggle code preview mode (Code/Raw/FileInfo)
+    pub fn toggle_code_preview_mode(&mut self) {
+        self.code_preview_mode = match self.code_preview_mode {
+            CodePreviewMode::Code => CodePreviewMode::Raw,
+            CodePreviewMode::Raw => CodePreviewMode::FileInfo,
+            CodePreviewMode::FileInfo => CodePreviewMode::Code,
+        };
+        // Reset scroll when switching modes
+        self.code_scroll = 0;
+    }
+
+    /// Navigate to next match within the current code result
+    pub fn next_code_match(&mut self) {
+        if let Some(result) = self.selected_code_result() {
+            let max_matches = result.matches.len().saturating_sub(1);
+            self.code_match_index = (self.code_match_index + 1).min(max_matches);
+        }
+    }
+
+    /// Navigate to previous match within the current code result
+    pub fn previous_code_match(&mut self) {
+        if self.code_match_index > 0 {
+            self.code_match_index -= 1;
+        }
+    }
+
+    /// Reset match index when navigating to a different result
+    pub fn reset_code_match_index(&mut self) {
+        self.code_match_index = 0;
     }
 
     // ===== Search History Methods =====
@@ -723,6 +983,174 @@ impl App {
         self.search_input = query.clone();
         // Return the query so caller can trigger a search
         Some(query)
+    }
+
+    // ===== Trending Methods =====
+
+    /// Toggle trending options panel
+    pub fn toggle_trending_options(&mut self) {
+        self.show_trending_options = !self.show_trending_options;
+        if self.show_trending_options {
+            self.trending_option_cursor = 0;
+        }
+    }
+
+    /// Navigate trending options
+    pub fn next_trending_option(&mut self) {
+        // Options: 0=Period, 1=Language, 2=MinStars, 3=Topic, 4=SortByVelocity
+        self.trending_option_cursor = (self.trending_option_cursor + 1).min(4);
+    }
+
+    pub fn previous_trending_option(&mut self) {
+        if self.trending_option_cursor > 0 {
+            self.trending_option_cursor -= 1;
+        }
+    }
+
+    /// Toggle trending period
+    pub fn toggle_trending_period(&mut self) {
+        self.trending_filters.period = self.trending_filters.period.next();
+    }
+
+    /// Toggle sort by velocity
+    pub fn toggle_trending_velocity(&mut self) {
+        self.trending_filters.sort_by_velocity = !self.trending_filters.sort_by_velocity;
+    }
+
+    /// Adjust min stars for trending
+    pub fn increase_trending_min_stars(&mut self) {
+        self.trending_filters.min_stars = (self.trending_filters.min_stars + 50).min(10000);
+    }
+
+    pub fn decrease_trending_min_stars(&mut self) {
+        self.trending_filters.min_stars = self.trending_filters.min_stars.saturating_sub(50);
+    }
+
+    // Settings/Token management methods
+
+    /// Toggle settings popup
+    pub fn toggle_settings(&mut self) {
+        self.show_settings = !self.show_settings;
+        if self.show_settings {
+            self.input_mode = InputMode::Settings;
+            self.settings_cursor = 0;
+            self.token_status_message = None;
+        } else {
+            self.input_mode = InputMode::Normal;
+        }
+    }
+
+    /// Open token input for a platform
+    pub fn start_token_input(&mut self, platform: &str) {
+        self.token_input_platform = platform.to_string();
+        self.token_input_buffer.clear();
+        self.input_mode = InputMode::TokenInput;
+        self.token_status_message = None;
+    }
+
+    /// Save the entered token
+    pub fn save_token(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        use reposcout_core::TokenStore;
+
+        if self.token_input_buffer.is_empty() {
+            self.token_status_message = Some("Token cannot be empty".to_string());
+            return Ok(());
+        }
+
+        // Load or create token store
+        let mut store = TokenStore::load().unwrap_or_else(|_| TokenStore::new());
+
+        // Store token with 30 days validity
+        store.set_token(&self.token_input_platform, &self.token_input_buffer, 30);
+
+        // Save to disk
+        store.save()?;
+
+        self.token_status_message = Some(format!(
+            "{} token saved successfully! (Valid for 30 days)",
+            self.token_input_platform.to_uppercase()
+        ));
+
+        // Clear input
+        self.token_input_buffer.clear();
+        self.input_mode = InputMode::Settings;
+
+        Ok(())
+    }
+
+    /// Cancel token input
+    pub fn cancel_token_input(&mut self) {
+        self.token_input_buffer.clear();
+        self.token_input_platform.clear();
+        self.input_mode = InputMode::Settings;
+    }
+
+    /// Navigate settings options
+    pub fn next_setting(&mut self) {
+        self.settings_cursor = (self.settings_cursor + 1) % 4; // 4 options: GitHub, GitLab, Bitbucket, Close
+    }
+
+    pub fn previous_setting(&mut self) {
+        if self.settings_cursor == 0 {
+            self.settings_cursor = 3;
+        } else {
+            self.settings_cursor -= 1;
+        }
+    }
+
+    /// Get current token status for a platform
+    pub fn get_token_status(&self, platform: &str) -> String {
+        use reposcout_core::TokenStore;
+
+        match TokenStore::load() {
+            Ok(store) => {
+                if let Some(days) = store.get_token_days_remaining(platform) {
+                    if days == 0 {
+                        "Token expired".to_string()
+                    } else if days == 1 {
+                        "Expires in 1 day".to_string()
+                    } else {
+                        format!("Expires in {} days", days)
+                    }
+                } else {
+                    "No token set".to_string()
+                }
+            }
+            Err(_) => "No token set".to_string(),
+        }
+    }
+
+    /// Navigate to next notification
+    pub fn next_notification(&mut self) {
+        if !self.notifications.is_empty() {
+            self.notifications_selected_index = (self.notifications_selected_index + 1) % self.notifications.len();
+        }
+    }
+
+    /// Navigate to previous notification
+    pub fn previous_notification(&mut self) {
+        if !self.notifications.is_empty() {
+            if self.notifications_selected_index > 0 {
+                self.notifications_selected_index -= 1;
+            } else {
+                self.notifications_selected_index = self.notifications.len() - 1;
+            }
+        }
+    }
+
+    /// Toggle showing all vs unread-only notifications
+    pub fn toggle_notification_filter(&mut self) {
+        self.notifications_show_all = !self.notifications_show_all;
+    }
+
+    /// Toggle participating filter
+    pub fn toggle_participating_filter(&mut self) {
+        self.notifications_participating = !self.notifications_participating;
+    }
+
+    /// Get currently selected notification
+    pub fn get_selected_notification(&self) -> Option<&reposcout_core::Notification> {
+        self.notifications.get(self.notifications_selected_index)
     }
 }
 

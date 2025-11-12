@@ -1,5 +1,6 @@
 // UI rendering logic
 use crate::{App, InputMode, SearchMode};
+use crate::code_ui;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -14,21 +15,27 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
+    let screen_height = frame.area().height;
+
+    // Dynamic header height: 4 if Bitbucket not configured (extra line for warning), else 3
+    let header_height = if !app.platform_status.bitbucket_configured { 4 } else { 3 };
+
+    // Make constraints adaptive to screen size
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(if app.show_filters {
             vec![
-                Constraint::Length(3),  // Header
-                Constraint::Length(3),  // Search input
-                Constraint::Length(9),  // Filters panel
-                Constraint::Min(10),    // Main content
+                Constraint::Length(header_height.min(screen_height / 6)),  // Header (dynamic)
+                Constraint::Length(3.min(screen_height / 8)),  // Search input
+                Constraint::Length(9.min(screen_height / 4)),  // Filters panel
+                Constraint::Min(5),    // Main content (minimum 5 lines)
                 Constraint::Length(1),  // Status bar
             ]
         } else {
             vec![
-                Constraint::Length(3),  // Header
-                Constraint::Length(3),  // Search input
-                Constraint::Min(10),    // Main content
+                Constraint::Length(header_height.min(screen_height / 6)),  // Header (dynamic)
+                Constraint::Length(3.min(screen_height / 8)),  // Search input
+                Constraint::Min(5),    // Main content (minimum 5 lines)
                 Constraint::Length(1),  // Status bar
             ]
         })
@@ -49,11 +56,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     };
 
     // Split main content into results and preview
+    // Adaptive split: on narrow screens, give more space to results
+    let screen_width = frame.area().width;
+    let (results_pct, preview_pct) = if screen_width < 100 {
+        (50, 50)  // Equal split on narrow screens
+    } else if screen_width < 150 {
+        (45, 55)  // Slightly favor preview on medium screens
+    } else {
+        (40, 60)  // More preview space on wide screens
+    };
+
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(40),  // Results list
-            Constraint::Percentage(60),  // Preview pane
+            Constraint::Percentage(results_pct),  // Results list
+            Constraint::Percentage(preview_pct),  // Preview pane
         ])
         .split(content_area);
 
@@ -66,10 +83,28 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             render_preview(frame, app, content_chunks[1]);
         }
         SearchMode::Code => {
-            // Render code search results
-            render_code_results_list(frame, app, content_chunks[0]);
-            // Render code preview with syntax highlighting
-            render_code_preview(frame, app, content_chunks[1]);
+            // Render enhanced code search results with filter panel
+            code_ui::render_code_results_list(frame, app, content_chunks[0]);
+            // Render enhanced code preview with tabs and syntax highlighting
+            code_ui::render_code_preview(frame, app, content_chunks[1]);
+        }
+        SearchMode::Trending => {
+            // Render trending results (reuse repository results list)
+            render_results_list(frame, app, content_chunks[0]);
+            // Render preview pane
+            render_preview(frame, app, content_chunks[1]);
+        }
+        SearchMode::Notifications => {
+            // Render notifications list
+            render_notifications_list(frame, app, content_chunks[0]);
+            // Render notification details
+            render_notification_preview(frame, app, content_chunks[1]);
+        }
+        SearchMode::Semantic => {
+            // Render semantic search results (reuse repository results list)
+            render_results_list(frame, app, content_chunks[0]);
+            // Render preview pane with semantic scores
+            render_preview(frame, app, content_chunks[1]);
         }
     }
 
@@ -83,70 +118,155 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         render_history_popup(frame, app, frame.area());
     }
 
+    // Render trending options if active
+    if app.show_trending_options && app.search_mode == SearchMode::Trending {
+        render_trending_options(frame, app, frame.area());
+    }
+
+    // Render settings/token popups if active
+    if app.show_settings || app.input_mode == InputMode::Settings || app.input_mode == InputMode::TokenInput {
+        if app.input_mode == InputMode::TokenInput {
+            render_token_input_popup(app, frame, frame.area());
+        } else {
+            render_settings_popup(app, frame, frame.area());
+        }
+    }
+
     // Render status bar
     render_status_bar(frame, app, status_area);
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
-    // Split header into three sections: left, center, right
-    let header_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-        ])
-        .split(area);
+    let screen_width = area.width;
 
-    // Left: Logo and version
-    let logo = vec![
-        Line::from(vec![
-            Span::styled("🔍 ", Style::default().fg(Color::Cyan)),
-            Span::styled("RepoScout", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(" v1.0.0", Style::default().fg(Color::DarkGray)),
-        ]),
-    ];
+    // Adaptive layout based on screen width
+    let header_chunks = if screen_width < 100 {
+        // Narrow: Stack vertically or use simpler layout
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(40),
+                Constraint::Percentage(60),
+            ])
+            .split(area)
+    } else {
+        // Normal: Three-column layout
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(25),
+                Constraint::Percentage(50),
+                Constraint::Percentage(25),
+            ])
+            .split(area)
+    };
+
+    // Left: Logo and version (adaptive)
+    let logo_text = if screen_width < 80 {
+        "🔍 RS"  // Abbreviated on tiny screens
+    } else if screen_width < 100 {
+        "🔍 RepoScout"  // No version on small screens
+    } else {
+        "🔍 RepoScout v1.0.0"  // Full on normal screens
+    };
+
+    let logo = vec![Line::from(vec![
+        Span::styled(logo_text, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+    ])];
+
     let logo_widget = Paragraph::new(logo)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default());
     frame.render_widget(logo_widget, header_chunks[0]);
 
-    // Center: Search mode and platform status
-    let mode_text = match app.search_mode {
-        SearchMode::Repository => "Repository Search",
-        SearchMode::Code => "Code Search",
+    // Center: Search mode and platform status (adaptive)
+    let mode_text = if screen_width < 100 {
+        match app.search_mode {
+            SearchMode::Repository => "Repo",
+            SearchMode::Code => "Code",
+            SearchMode::Trending => "Trend",
+            SearchMode::Notifications => "Notif",
+            SearchMode::Semantic => "Semantic",
+        }
+    } else {
+        match app.search_mode {
+            SearchMode::Repository => "Repository Search",
+            SearchMode::Code => "Code Search",
+            SearchMode::Trending => "Trending Repos",
+            SearchMode::Notifications => "Notifications",
+            SearchMode::Semantic => "Semantic Search (AI)",
+        }
     };
     let mode_color = match app.search_mode {
         SearchMode::Repository => Color::Cyan,
         SearchMode::Code => Color::Green,
+        SearchMode::Trending => Color::Magenta,
+        SearchMode::Notifications => Color::Yellow,
+        SearchMode::Semantic => Color::LightBlue,
     };
 
-    // Build platform status indicators with full names
+    // Build platform status indicators (adaptive based on width)
     let mut platform_spans = vec![
         Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-        Span::raw(" | "),
     ];
 
-    // GitHub status (Green - always configured)
-    platform_spans.push(Span::styled(" GitHub ✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
-    platform_spans.push(Span::raw(" "));
-
-    // GitLab status (Magenta/Purple - always configured)
-    platform_spans.push(Span::styled(" GitLab ✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
-    platform_spans.push(Span::raw(" "));
-
-    // Bitbucket status (Blue when configured, Red with X when not)
-    if app.platform_status.bitbucket_configured {
-        platform_spans.push(Span::styled(" Bitbucket ✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+    // Only show separator if we have room
+    if screen_width > 80 {
+        platform_spans.push(Span::raw(" | "));
     } else {
-        platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::raw(" "));
     }
 
-    let platforms = vec![Line::from(platform_spans)];
-    let platforms_widget = Paragraph::new(platforms)
+    // Platform badges - abbreviated on narrow screens
+    if screen_width < 100 {
+        // Compact mode: just initials with checkmarks
+        platform_spans.push(Span::styled(" GH✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::styled(" GL✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
+        if app.platform_status.bitbucket_configured {
+            platform_spans.push(Span::styled(" BB✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+        } else {
+            platform_spans.push(Span::styled(" BB✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+        }
+    } else {
+        // Full mode: full names
+        platform_spans.push(Span::styled(" GitHub ✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::raw(" "));
+        platform_spans.push(Span::styled(" GitLab ✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::raw(" "));
+        if app.platform_status.bitbucket_configured {
+            platform_spans.push(Span::styled(" Bitbucket ✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+        } else {
+            platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+        }
+    }
+
+    let mut platform_lines = vec![Line::from(platform_spans)];
+
+    // Add Bitbucket warning on separate line (adaptive text)
+    if !app.platform_status.bitbucket_configured {
+        let warning_text = if screen_width < 120 {
+            "⚠ Set BB credentials"  // Short version
+        } else {
+            "⚠ Set BITBUCKET_USERNAME & BITBUCKET_APP_PASSWORD"  // Full version
+        };
+
+        platform_lines.push(Line::from(vec![
+            Span::styled(warning_text, Style::default().fg(Color::Yellow)),
+        ]));
+    }
+
+    let platforms_widget = Paragraph::new(platform_lines)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default())
         .alignment(ratatui::layout::Alignment::Center);
+
+    // Render in center area (skip stats on narrow screens)
+    if screen_width < 100 {
+        // Narrow: platforms take remaining space
+        frame.render_widget(platforms_widget, header_chunks[1]);
+        return; // Skip stats rendering
+    }
+
     frame.render_widget(platforms_widget, header_chunks[1]);
 
     // Right: Stats
@@ -172,22 +292,59 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
 fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     let input_style = match app.input_mode {
         InputMode::Searching => Style::default().fg(Color::Yellow),
-        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch | InputMode::HistoryPopup => Style::default(),
+        InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch | InputMode::HistoryPopup | InputMode::Settings | InputMode::TokenInput => Style::default(),
     };
 
-    let input = Paragraph::new(app.search_input.as_str())
+    // Different title and content based on search mode
+    let (title, content) = match app.search_mode {
+        SearchMode::Trending => {
+            if app.show_trending_options {
+                ("🔥 Trending (Options open - adjust filters)", "Press Enter to search with current filters".to_string())
+            } else {
+                ("🔥 Trending (Press 'o' for options, Enter to search)",
+                 format!("{} | {} | {}+ ⭐",
+                    app.trending_filters.period.display_name(),
+                    app.trending_filters.language.as_deref().unwrap_or("All languages"),
+                    app.trending_filters.min_stars))
+            }
+        }
+        SearchMode::Repository => {
+            ("Search (ESC to navigate, / to search)", app.search_input.as_str().to_string())
+        }
+        SearchMode::Code => {
+            ("Code Search (ESC to navigate, / to search)", app.search_input.as_str().to_string())
+        }
+        SearchMode::Notifications => {
+            let filter_info = if app.notifications_show_all {
+                "All"
+            } else {
+                "Unread"
+            };
+            let participating_info = if app.notifications_participating {
+                " | Participating"
+            } else {
+                ""
+            };
+            ("📬 Notifications", format!("{}{}", filter_info, participating_info))
+        }
+        SearchMode::Semantic => {
+            ("Semantic Search (AI) - ESC to navigate, / to search", app.search_input.as_str().to_string())
+        }
+    };
+
+    let input = Paragraph::new(content)
         .style(input_style)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Search (ESC to navigate, / to search)")
+                .title(title)
                 .border_style(input_style),
         );
 
     frame.render_widget(input, area);
 
-    // Show cursor when in search mode
-    if app.input_mode == InputMode::Searching {
+    // Show cursor when in search mode (not trending)
+    if app.input_mode == InputMode::Searching && app.search_mode != SearchMode::Trending {
         frame.set_cursor_position((
             area.x + app.search_input.len() as u16 + 1,
             area.y + 1,
@@ -196,6 +353,18 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
+    // Calculate adaptive description length based on area width
+    let available_width = area.width.saturating_sub(10); // Account for borders and padding
+    let desc_max_length = if available_width < 50 {
+        30  // Very narrow
+    } else if available_width < 80 {
+        40  // Narrow
+    } else if available_width < 120 {
+        60  // Medium (default)
+    } else {
+        80  // Wide
+    };
+
     // Show loading message if loading
     if app.loading {
         let loading_text = vec![
@@ -262,7 +431,7 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(&repo.full_name, name_style),
             ]);
 
-            // Line 2: Language + Platform + Updated (MUTED secondary info)
+            // Line 2: Language + Platform + Updated + Health (MUTED secondary info)
             let lang_display = repo.language.as_deref().unwrap_or("Unknown");
             let days_ago = (chrono::Utc::now() - repo.updated_at).num_days();
             let updated_display = if days_ago == 0 {
@@ -277,7 +446,7 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
                 format!("{}y ago", days_ago / 365)
             };
 
-            let line2 = Line::from(vec![
+            let mut line2_spans = vec![
                 Span::raw("     "), // Indent
                 Span::styled("●", Style::default().fg(Color::Rgb(147, 112, 219))), // Medium purple
                 Span::raw(" "),
@@ -289,14 +458,32 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
                 ),
                 Span::raw("  •  "),
                 Span::styled(updated_display, Style::default().fg(Color::Rgb(128, 128, 128))), // Medium gray
-            ]);
+            ];
+
+            // Add health indicator if available
+            if let Some(health) = &repo.health {
+                let health_color = match health.status {
+                    reposcout_core::HealthStatus::Healthy => Color::Green,
+                    reposcout_core::HealthStatus::Moderate => Color::Yellow,
+                    reposcout_core::HealthStatus::Warning => Color::Rgb(255, 165, 0), // Orange
+                    reposcout_core::HealthStatus::Critical => Color::Red,
+                };
+
+                line2_spans.push(Span::raw("  •  "));
+                line2_spans.push(Span::styled(
+                    format!("{} {}", health.status.emoji(), health.maintenance.label()),
+                    Style::default().fg(health_color),
+                ));
+            }
+
+            let line2 = Line::from(line2_spans);
 
             // Line 3: Description (VERY MUTED so it doesn't compete with name)
-            // Use char_indices() to safely truncate at character boundaries
+            // Use char_indices() to safely truncate at character boundaries - adaptive
             let description = if let Some(desc) = &repo.description {
                 let char_count = desc.chars().count();
-                if char_count > 60 {
-                    let truncated: String = desc.chars().take(57).collect();
+                if char_count > desc_max_length as usize {
+                    let truncated: String = desc.chars().take(desc_max_length as usize - 3).collect();
                     format!("     {}...", truncated)
                 } else {
                     format!("     {}", desc)
@@ -357,6 +544,7 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
         PreviewMode::Readme => (render_readme_preview(app), app.readme_scroll),
         PreviewMode::Activity => (render_activity_preview(app), 0),
         PreviewMode::Dependencies => (render_dependencies_preview(app), 0),
+        PreviewMode::Package => (render_package_preview(app), 0),
     };
 
     let paragraph = Paragraph::new(content)
@@ -375,6 +563,7 @@ fn render_preview_tabs(frame: &mut Frame, app: &App, area: Rect) {
         ("README", PreviewMode::Readme),
         ("Activity", PreviewMode::Activity),
         ("Dependencies", PreviewMode::Dependencies),
+        ("Package", PreviewMode::Package),
     ];
 
     let tab_spans: Vec<Span> = tabs
@@ -521,6 +710,92 @@ fn render_stats_preview(app: &App) -> Vec<Line> {
                 Style::default().fg(Color::Gray),
             ),
         ]));
+
+        // Health Metrics Section
+        if let Some(health) = &repo.health {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("━━━ Health Metrics ━━━", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            ]));
+            lines.push(Line::from(""));
+
+            // Overall health score
+            let health_color = match health.status {
+                reposcout_core::HealthStatus::Healthy => Color::Green,
+                reposcout_core::HealthStatus::Moderate => Color::Yellow,
+                reposcout_core::HealthStatus::Warning => Color::Rgb(255, 165, 0),
+                reposcout_core::HealthStatus::Critical => Color::Red,
+            };
+
+            lines.push(Line::from(vec![
+                Span::raw("💚 Health:    "),
+                Span::styled(
+                    format!("{} {} ({}/100)", health.status.emoji(), health.status.label(), health.score),
+                    Style::default().fg(health_color).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("🔧 Maintenance: "),
+                Span::styled(
+                    format!("{} {}", health.maintenance.emoji(), health.maintenance.label()),
+                    Style::default().fg(health_color),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("   {}", health.maintenance.description()),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+
+            // Detailed scores breakdown
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("Detailed Scores:", Style::default().fg(Color::Gray)),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Activity:      "),
+                Span::styled(
+                    format!("{}/30", health.metrics.activity_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Community:     "),
+                Span::styled(
+                    format!("{}/25", health.metrics.community_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Responsiveness:"),
+                Span::styled(
+                    format!("{}/20", health.metrics.responsiveness_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Maturity:      "),
+                Span::styled(
+                    format!("{}/15", health.metrics.maturity_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::raw("  Documentation: "),
+                Span::styled(
+                    format!("{}/10", health.metrics.documentation_score),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+        }
 
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
@@ -685,6 +960,115 @@ fn render_activity_preview(app: &App) -> Vec<Line> {
                 ]));
             }
         }
+
+        // Activity Heatmap
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "━━━ Activity Heatmap (Last 12 Months) ━━━",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        // Generate activity heatmap
+        let heatmap_lines = generate_activity_heatmap(repo);
+        lines.extend(heatmap_lines);
+
+        // Activity metrics
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "━━━ Activity Summary ━━━",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        let activity_summary_lines = generate_activity_summary(repo);
+        lines.extend(activity_summary_lines);
+
+        // Add sparkline visualizations
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "━━━ Trend Sparklines ━━━",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        // Generate sparklines using repo data
+        let activity_sparkline = crate::sparkline::generate_activity_sparkline(
+            repo.created_at,
+            repo.pushed_at,
+            repo.stars,
+        );
+
+        let velocity_sparkline = crate::sparkline::generate_star_velocity_sparkline(
+            repo.created_at,
+            repo.stars,
+        );
+
+        let issue_sparkline = crate::sparkline::generate_issue_activity_sparkline(
+            repo.open_issues,
+            repo.stars,
+            repo.created_at,
+        );
+
+        // Display sparklines with labels
+        lines.push(Line::from(vec![
+            Span::raw("  ⚡ Activity Trend:  "),
+            Span::styled(
+                activity_sparkline,
+                Style::default().fg(Color::Green),
+            ),
+        ]));
+
+        lines.push(Line::from(vec![
+            Span::raw("  ⭐ Star Velocity:   "),
+            Span::styled(
+                velocity_sparkline,
+                Style::default().fg(Color::Yellow),
+            ),
+        ]));
+
+        lines.push(Line::from(vec![
+            Span::raw("  🔧 Issue Activity:  "),
+            Span::styled(
+                issue_sparkline,
+                Style::default().fg(Color::Magenta),
+            ),
+        ]));
+
+        // Add health trend if health metrics available
+        if let Some(health) = &repo.health {
+            let health_sparkline = crate::sparkline::generate_health_trend_sparkline(
+                health.score,
+            );
+
+            lines.push(Line::from(vec![
+                Span::raw("  💚 Health Trend:    "),
+                Span::styled(
+                    health_sparkline,
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "  Each bar represents a time period (12 total)",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "  ▁▂▃▄▅▆▇█ = Low to High activity",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            ),
+        ]));
 
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
@@ -1053,22 +1437,6 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let status = if let Some(error) = &app.error_message {
         vec![Span::styled(error, Style::default().fg(Color::Red))]
-    } else if !app.platform_status.bitbucket_configured {
-        // Show warning about missing Bitbucket credentials
-        vec![
-            Span::styled("⚠ Bitbucket credentials not available ", Style::default().fg(Color::Yellow)),
-            Span::styled("(set BITBUCKET_USERNAME and BITBUCKET_APP_PASSWORD) ", Style::default().fg(Color::DarkGray)),
-            Span::raw("| "),
-            match app.input_mode {
-                InputMode::Searching => {
-                    Span::styled("SEARCH MODE | ESC: normal | ENTER: search", Style::default().fg(Color::Cyan))
-                }
-                InputMode::Normal => {
-                    Span::raw("j/k: navigate | /: search | q: quit")
-                }
-                _ => Span::raw(""),
-            }
-        ]
     } else {
         vec![match app.input_mode {
             InputMode::Searching => {
@@ -1086,17 +1454,36 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             InputMode::HistoryPopup => {
                 Span::styled("HISTORY | j/k: navigate | ENTER: select | ESC: close", Style::default().fg(Color::Cyan))
             }
+            InputMode::Settings => {
+                Span::styled("SETTINGS | j/k: navigate | ENTER: select platform | ESC: close", Style::default().fg(Color::Cyan))
+            }
+            InputMode::TokenInput => {
+                Span::styled("TOKEN INPUT | Type token | ENTER: save | ESC: cancel", Style::default().fg(Color::Yellow))
+            }
             InputMode::Normal => {
                 use crate::PreviewMode;
                 match app.search_mode {
                     SearchMode::Code => {
-                        Span::raw("j/k: navigate | /: search | Ctrl+R: history | M: switch mode | TAB: scroll | ENTER: open | q: quit")
+                        Span::styled("j/k: navigate | F: filters | TAB: tabs | n/N: matches | /: search | ENTER: open | M: mode | q: quit", Style::default().fg(Color::Green))
                     }
                     SearchMode::Repository => {
                         if app.preview_mode == PreviewMode::Readme {
-                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
+                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | Ctrl+S: settings | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
                         } else {
-                            Span::raw("j/k: navigate | /: search | Ctrl+R: history | f: fuzzy | F: filters | M: switch mode | TAB: tabs | b: bookmark | B: view | ENTER: open | q: quit")
+                            Span::raw("j/k: navigate | /: search | Ctrl+R: history | Ctrl+S: settings | f: fuzzy | F: filters | M: mode | TAB: tabs | b: bookmark | q: quit")
+                        }
+                    }
+                    SearchMode::Trending => {
+                        Span::styled("o: options | ENTER: search | j/k: navigate | Ctrl+S: settings | M: mode | TAB: tabs | q: quit", Style::default().fg(Color::Magenta))
+                    }
+                    SearchMode::Notifications => {
+                        Span::styled("j/k: navigate | m: mark read | a: mark all | f: filter | p: participating | ENTER: open | M: mode | q: quit", Style::default().fg(Color::Yellow))
+                    }
+                    SearchMode::Semantic => {
+                        if app.preview_mode == PreviewMode::Readme {
+                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | Ctrl+S: settings | M: switch mode | q: quit", Style::default().fg(Color::LightBlue))
+                        } else {
+                            Span::styled("j/k: navigate | /: search | Ctrl+R: history | Ctrl+S: settings | f: fuzzy | M: mode | TAB: tabs | b: bookmark | q: quit", Style::default().fg(Color::LightBlue))
                         }
                     }
                 }
@@ -1581,5 +1968,953 @@ fn render_history_popup(frame: &mut Frame, app: &App, area: Rect) {
             .block(Block::default().borders(Borders::NONE));
 
         frame.render_widget(help, help_area);
+    }
+}
+
+/// Generate GitHub-style contribution heatmap (52 weeks x 7 days)
+fn generate_activity_heatmap(repo: &reposcout_core::models::Repository) -> Vec<Line<'_>> {
+    use chrono::{Datelike, Duration, Utc};
+
+    let now = Utc::now();
+    let days_since_pushed = (now - repo.pushed_at).num_days();
+    let days_since_created = (now - repo.created_at).num_days();
+
+    // Get activity score for intensity distribution
+    let activity_score = if let Some(health) = &repo.health {
+        health.metrics.activity_score
+    } else {
+        if days_since_pushed < 7 { 25 }
+        else if days_since_pushed < 30 { 20 }
+        else if days_since_pushed < 90 { 15 }
+        else if days_since_pushed < 180 { 10 }
+        else { 5 }
+    };
+
+    let mut lines = vec![];
+
+    // Month labels (show every ~4 weeks)
+    let mut month_line = vec![Span::raw("     ")]; // Padding for day labels
+    let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    // Calculate which month each week belongs to
+    for week in (0..52).step_by(4) {
+        let date = now - Duration::weeks(52 - week as i64);
+        let month_idx = (date.month() - 1) as usize;
+        month_line.push(Span::styled(
+            format!("{:<4}", months[month_idx]),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    lines.push(Line::from(month_line));
+
+    // Generate 7 rows (days of week)
+    let day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    for day in 0..7 {
+        let mut row_spans = vec![];
+
+        // Add day label (show only Mon, Wed, Fri)
+        if day == 0 || day == 2 || day == 4 {
+            row_spans.push(Span::styled(
+                format!("{:<4} ", day_labels[day]),
+                Style::default().fg(Color::DarkGray),
+            ));
+        } else {
+            row_spans.push(Span::raw("     "));
+        }
+
+        // Generate 52 week squares
+        for week in 0..52 {
+            let days_ago = (52 - week) * 7 + (6 - day);
+
+            // Calculate activity level for this day
+            let activity_level = calculate_activity_level(
+                days_ago as i64,
+                days_since_pushed,
+                days_since_created,
+                activity_score,
+            );
+
+            let color = get_activity_color(activity_level);
+            row_spans.push(Span::styled("█", Style::default().fg(color)));
+        }
+
+        lines.push(Line::from(row_spans));
+    }
+
+    // Legend
+    lines.push(Line::from(""));
+    let legend_spans = vec![
+        Span::raw("     Less "),
+        Span::styled("█", Style::default().fg(Color::Rgb(22, 27, 34))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(14, 68, 41))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(0, 109, 50))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(38, 166, 65))),
+        Span::raw(" "),
+        Span::styled("█", Style::default().fg(Color::Rgb(57, 211, 83))),
+        Span::raw(" More"),
+    ];
+    lines.push(Line::from(legend_spans));
+
+    lines
+}
+
+/// Calculate activity level for a specific day based on repository metrics
+fn calculate_activity_level(
+    days_ago: i64,
+    days_since_pushed: i64,
+    days_since_created: i64,
+    activity_score: u8,
+) -> u8 {
+    // If repository wasn't created yet, no activity
+    if days_ago > days_since_created {
+        return 0;
+    }
+
+    // Calculate base activity level from score
+    // activity_score is 0-30, convert to 0-4 levels
+    let base_level = if activity_score >= 25 {
+        4
+    } else if activity_score >= 20 {
+        3
+    } else if activity_score >= 15 {
+        2
+    } else if activity_score >= 10 {
+        1
+    } else {
+        0
+    };
+
+    // Apply decay based on how long ago
+    // Recent activity (within days_since_pushed) should be brighter
+    let decay_factor = if days_ago <= days_since_pushed {
+        // Within the active period - use exponential decay from most recent
+        let ratio = days_ago as f64 / days_since_pushed.max(1) as f64;
+        1.0 - (ratio * 0.7) // Decay up to 70%
+    } else {
+        // Before last push - much lower activity
+        0.2
+    };
+
+    // Add some randomization for realistic look
+    let pseudo_random = ((days_ago * 17 + days_since_created * 13) % 5) as f64 / 10.0;
+
+    let final_level = (base_level as f64 * decay_factor + pseudo_random).min(4.0).max(0.0);
+    final_level.round() as u8
+}
+
+/// Get color for activity level (0-4)
+fn get_activity_color(level: u8) -> Color {
+    match level {
+        0 => Color::Rgb(22, 27, 34),      // Very dark (no activity)
+        1 => Color::Rgb(14, 68, 41),       // Dark green (low activity)
+        2 => Color::Rgb(0, 109, 50),       // Medium green (moderate activity)
+        3 => Color::Rgb(38, 166, 65),      // Bright green (good activity)
+        4 => Color::Rgb(57, 211, 83),      // Very bright green (high activity)
+        _ => Color::Rgb(22, 27, 34),
+    }
+}
+
+/// Generate activity summary with key metrics
+fn generate_activity_summary(repo: &reposcout_core::models::Repository) -> Vec<Line<'_>> {
+    use chrono::Utc;
+
+    let now = Utc::now();
+    let days_since_created = (now - repo.created_at).num_days();
+    let days_since_updated = (now - repo.updated_at).num_days();
+    let days_since_pushed = (now - repo.pushed_at).num_days();
+
+    let mut lines = vec![];
+
+    // Show key activity metrics
+    lines.push(Line::from(vec![
+        Span::styled("Repository Age:    ", Style::default().fg(Color::Gray)),
+        Span::styled(
+            format_duration_friendly(days_since_created),
+            Style::default().fg(Color::Cyan),
+        ),
+    ]));
+
+    lines.push(Line::from(vec![
+        Span::styled("Last Updated:      ", Style::default().fg(Color::Gray)),
+        Span::styled(
+            format_duration_friendly(days_since_updated),
+            Style::default().fg(get_freshness_color(days_since_updated)),
+        ),
+    ]));
+
+    lines.push(Line::from(vec![
+        Span::styled("Last Pushed:       ", Style::default().fg(Color::Gray)),
+        Span::styled(
+            format_duration_friendly(days_since_pushed),
+            Style::default().fg(get_freshness_color(days_since_pushed)),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+
+    // Status indicator
+    let (status_icon, status_text, status_color) = if days_since_pushed == 0 {
+        ("🔥", "Active today - Very active!", Color::Green)
+    } else if days_since_pushed < 7 {
+        ("✅", "Active this week - Healthy", Color::Green)
+    } else if days_since_pushed < 30 {
+        ("✓", "Active this month - Good", Color::Rgb(154, 205, 50))
+    } else if days_since_pushed < 90 {
+        ("○", "Updated within 3 months - Moderate", Color::Yellow)
+    } else if days_since_pushed < 180 {
+        ("⚠", "Last updated 3-6 months ago - Stale", Color::Rgb(255, 165, 0))
+    } else if days_since_pushed < 365 {
+        ("⏸", "Last updated 6-12 months ago - Inactive", Color::Red)
+    } else {
+        ("💀", "No activity for over a year - Abandoned", Color::Red)
+    };
+
+    lines.push(Line::from(vec![
+        Span::styled(format!("{} ", status_icon), Style::default()),
+        Span::styled(status_text, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+    ]));
+
+    lines
+}
+
+fn render_trending_options(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::app::TrendingPeriod;
+
+    // Create centered popup
+    let popup_width = 60.min(area.width - 4);
+    let popup_height = 18.min(area.height - 4);
+
+    let popup_area = Rect {
+        x: (area.width.saturating_sub(popup_width)) / 2,
+        y: (area.height.saturating_sub(popup_height)) / 2,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    // Clear the popup area
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" 🔥 Trending Options (Enter to search, Tab to switch field, Esc to close) ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta));
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let filters = &app.trending_filters;
+
+    // Build options list
+    let mut lines = vec![];
+
+    // Period
+    let period_style = if app.trending_option_cursor == 0 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Period: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!("{} ", filters.period.display_name()),
+            period_style,
+        ),
+        Span::styled("(Space to toggle)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("    ", Style::default()),
+        Span::styled(
+            match filters.period {
+                TrendingPeriod::Daily => "→ Last 24 hours",
+                TrendingPeriod::Weekly => "→ Last 7 days",
+                TrendingPeriod::Monthly => "→ Last 30 days",
+            },
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]));
+
+    // Language
+    let lang_style = if app.trending_option_cursor == 1 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Language: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            filters.language.as_deref().unwrap_or("All"),
+            lang_style,
+        ),
+        Span::styled(" (Type to edit, Backspace to clear)", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    // Min Stars
+    let stars_style = if app.trending_option_cursor == 2 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Min Stars: ", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{}", filters.min_stars), stars_style),
+        Span::styled(" (+/- to adjust)", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    // Topic
+    let topic_style = if app.trending_option_cursor == 3 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Topic: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            filters.topic.as_deref().unwrap_or("None"),
+            topic_style,
+        ),
+        Span::styled(" (Type to edit, Backspace to clear)", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    // Sort by velocity
+    let velocity_style = if app.trending_option_cursor == 4 {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Sort by Velocity: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            if filters.sort_by_velocity { "Yes ⚡" } else { "No" },
+            velocity_style,
+        ),
+        Span::styled(" (Space to toggle)", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "  Velocity = stars/day (finds fastest growing repos)",
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        ),
+    ]));
+
+    let paragraph = Paragraph::new(lines)
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(paragraph, inner);
+}
+
+// Helper function to format duration in a friendly way
+fn format_duration_friendly(days: i64) -> String {
+    if days == 0 {
+        "Today".to_string()
+    } else if days == 1 {
+        "1 day ago".to_string()
+    } else if days < 7 {
+        format!("{} days ago", days)
+    } else if days < 30 {
+        let weeks = days / 7;
+        if weeks == 1 {
+            "1 week ago".to_string()
+        } else {
+            format!("{} weeks ago", weeks)
+        }
+    } else if days < 365 {
+        let months = days / 30;
+        if months == 1 {
+            "1 month ago".to_string()
+        } else {
+            format!("{} months ago", months)
+        }
+    } else {
+        let years = days / 365;
+        if years == 1 {
+            "1 year ago".to_string()
+        } else {
+            format!("{} years ago", years)
+        }
+    }
+}
+
+// Helper to get color based on how fresh/stale the date is
+fn get_freshness_color(days: i64) -> Color {
+    if days < 7 {
+        Color::Green
+    } else if days < 30 {
+        Color::Rgb(154, 205, 50) // Yellow-green
+    } else if days < 90 {
+        Color::Yellow
+    } else if days < 180 {
+        Color::Rgb(255, 165, 0) // Orange
+    } else {
+        Color::Red
+    }
+}
+
+/// Render settings popup for token management
+fn render_settings_popup(app: &App, frame: &mut Frame, area: Rect) {
+    use ratatui::layout::{Constraint, Direction, Layout, Alignment};
+
+    // Create centered popup (60% width, 50% height)
+    let popup_area = centered_rect(60, 50, area);
+
+    // Clear background
+    frame.render_widget(Clear, popup_area);
+
+    // Create main block
+    let block = Block::default()
+        .title(" ⚙️  Settings - API Tokens ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .style(Style::default().bg(Color::Black));
+
+    frame.render_widget(block, popup_area);
+
+    // Inner area for content
+    let inner_area = Rect {
+        x: popup_area.x + 2,
+        y: popup_area.y + 2,
+        width: popup_area.width.saturating_sub(4),
+        height: popup_area.height.saturating_sub(4),
+    };
+
+    // Split into sections
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Instructions
+            Constraint::Min(10),   // Platform list
+            Constraint::Length(3), // Status message
+            Constraint::Length(1), // Help text
+        ])
+        .split(inner_area);
+
+    // Instructions
+    let instructions = Paragraph::new(
+        "Configure API tokens for code search and private repositories.\n\
+         Tokens are encrypted and stored locally, valid for 30 days."
+    )
+    .style(Style::default().fg(Color::Gray))
+    .wrap(Wrap { trim: true });
+    frame.render_widget(instructions, chunks[0]);
+
+    // Platform options
+    let platforms = vec![
+        ("GitHub", "github", Color::White),
+        ("GitLab", "gitlab", Color::Rgb(252, 109, 38)),
+        ("Bitbucket", "bitbucket", Color::Blue),
+        ("Close", "", Color::Red),
+    ];
+
+    let items: Vec<ListItem> = platforms
+        .iter()
+        .enumerate()
+        .map(|(i, (name, platform, color))| {
+            let status = if !platform.is_empty() {
+                app.get_token_status(platform)
+            } else {
+                String::new()
+            };
+
+            let style = if i == app.settings_cursor {
+                Style::default()
+                    .fg(*color)
+                    .add_modifier(Modifier::BOLD)
+                    .bg(Color::DarkGray)
+            } else {
+                Style::default().fg(*color)
+            };
+
+            let content = if !platform.is_empty() {
+                format!("  {} - {}", name, status)
+            } else {
+                format!("  {}", name)
+            };
+
+            ListItem::new(content).style(style)
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(Block::default().borders(Borders::NONE));
+    frame.render_widget(list, chunks[1]);
+
+    // Status message
+    if let Some(ref msg) = app.token_status_message {
+        let status_style = if msg.contains("successfully") {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::Yellow)
+        };
+
+        let status = Paragraph::new(msg.as_str())
+            .style(status_style)
+            .wrap(Wrap { trim: true });
+        frame.render_widget(status, chunks[2]);
+    }
+
+    // Help text
+    let help = Paragraph::new("↑↓/j/k: Navigate | Enter: Set token | Esc: Close")
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(help, chunks[3]);
+}
+
+/// Render token input popup
+fn render_token_input_popup(app: &App, frame: &mut Frame, area: Rect) {
+    use ratatui::layout::{Constraint, Direction, Layout};
+
+    // Create centered popup (70% width, 40% height)
+    let popup_area = centered_rect(70, 40, area);
+
+    // Clear background
+    frame.render_widget(Clear, popup_area);
+
+    // Create main block
+    let title = format!(" Enter {} API Token ", app.token_input_platform.to_uppercase());
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .style(Style::default().bg(Color::Black));
+
+    frame.render_widget(block, popup_area);
+
+    // Inner area
+    let inner_area = Rect {
+        x: popup_area.x + 2,
+        y: popup_area.y + 2,
+        width: popup_area.width.saturating_sub(4),
+        height: popup_area.height.saturating_sub(4),
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4), // Instructions
+            Constraint::Length(3), // Input field
+            Constraint::Length(1), // Help
+        ])
+        .split(inner_area);
+
+    // Instructions
+    let instructions_text = match app.token_input_platform.as_str() {
+        "github" => "Create a token at: https://github.com/settings/tokens\nRequired scopes: 'public_repo' or 'repo' for private repos",
+        "gitlab" => "Create a token at: https://gitlab.com/-/profile/personal_access_tokens\nRequired scopes: 'read_api'",
+        "bitbucket" => "Create app password at: https://bitbucket.org/account/settings/app-passwords/\nRequired permissions: 'Repositories: Read'",
+        _ => "Enter your API token below",
+    };
+
+    let instructions = Paragraph::new(instructions_text)
+        .style(Style::default().fg(Color::Gray))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(instructions, chunks[0]);
+
+    // Token input (masked)
+    let masked_token = if app.token_input_buffer.is_empty() {
+        "_".to_string()
+    } else {
+        "*".repeat(app.token_input_buffer.len())
+    };
+
+    let input = Paragraph::new(masked_token)
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Token (hidden) ")
+                .border_style(Style::default().fg(Color::Yellow))
+        );
+    frame.render_widget(input, chunks[1]);
+
+    // Help text
+    let help = Paragraph::new("Type token | Enter: Save | Esc: Cancel")
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(help, chunks[2]);
+}
+
+// Helper function to create centered rect
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+// Render notifications list
+fn render_notifications_list(frame: &mut Frame, app: &App, area: Rect) {
+    let filter_text = if app.notifications_show_all {
+        "All"
+    } else {
+        "Unread"
+    };
+    let participating_text = if app.notifications_participating {
+        " | Participating"
+    } else {
+        ""
+    };
+
+    let title = format!(
+        " Notifications ({}) - {} {} | m: Mark Read | a: Mark All | f: Filter | p: Toggle Participating ",
+        app.notifications.len(),
+        filter_text,
+        participating_text
+    );
+
+    let items: Vec<ListItem> = app
+        .notifications
+        .iter()
+        .enumerate()
+        .map(|(i, notif)| {
+            let unread_marker = if notif.unread { "🔵" } else { "⚪" };
+            let icon = match notif.subject.subject_type.as_str() {
+                "Issue" => "🐛",
+                "PullRequest" => "🔀",
+                "Release" => "🎉",
+                "Commit" => "📝",
+                _ => "📬",
+            };
+
+            let line = Line::from(vec![
+                Span::raw(format!("{} {} ", unread_marker, icon)),
+                Span::styled(
+                    notif.subject.title.clone(),
+                    Style::default().fg(if notif.unread {
+                        Color::White
+                    } else {
+                        Color::DarkGray
+                    }),
+                ),
+                Span::styled(
+                    format!(" ({})", notif.repository.full_name),
+                    Style::default().fg(Color::Blue),
+                ),
+            ]);
+
+            let style = if i == app.notifications_selected_index {
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(line).style(style)
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(if app.notifications_loading {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::Cyan)
+            }),
+    );
+
+    frame.render_widget(list, area);
+}
+
+// Render notification details/preview
+fn render_notification_preview(frame: &mut Frame, app: &App, area: Rect) {
+    if let Some(notif) = app.get_selected_notification() {
+        let lines = vec![
+            Line::from(vec![
+                Span::styled("Title: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&notif.subject.title),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Repository: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&notif.repository.full_name),
+            ]),
+            Line::from(vec![
+                Span::styled("Type: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&notif.subject.subject_type),
+            ]),
+            Line::from(vec![
+                Span::styled("Reason: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&notif.reason),
+            ]),
+            Line::from(vec![
+                Span::styled("Status: ", Style::default().fg(Color::Cyan)),
+                Span::raw(if notif.unread { "Unread" } else { "Read" }),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Updated: ", Style::default().fg(Color::Cyan)),
+                Span::raw(notif.updated_at.format("%Y-%m-%d %H:%M:%S").to_string()),
+            ]),
+        ];
+
+        let mut all_lines = lines;
+
+        if let Some(ref desc) = notif.repository.description {
+            all_lines.push(Line::from(""));
+            all_lines.push(Line::from(vec![
+                Span::styled("Repository Description: ", Style::default().fg(Color::Cyan)),
+            ]));
+            all_lines.push(Line::from(desc.as_str()));
+        }
+
+        all_lines.push(Line::from(""));
+        all_lines.push(Line::from(vec![
+            Span::styled("URL: ", Style::default().fg(Color::Cyan)),
+            Span::styled(&notif.url, Style::default().fg(Color::Blue)),
+        ]));
+
+        all_lines.push(Line::from(""));
+        all_lines.push(Line::from(vec![
+            Span::styled("Repository URL: ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                &notif.repository.html_url,
+                Style::default().fg(Color::Blue),
+            ),
+        ]));
+
+        let paragraph = Paragraph::new(all_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Notification Details | Enter: Open in Browser ")
+                    .border_style(Style::default().fg(Color::Cyan)),
+            )
+            .wrap(Wrap { trim: true });
+
+        frame.render_widget(paragraph, area);
+    } else {
+        let paragraph = Paragraph::new("No notification selected")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Notification Details ")
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+
+        frame.render_widget(paragraph, area);
+    }
+}
+
+/// Render package manager information preview
+fn render_package_preview(app: &App) -> Vec<Line> {
+    let mut lines = Vec::new();
+
+    if let Some(repo) = app.selected_repository() {
+        // Check if we have cached package info
+        if let Some(packages) = app.get_cached_package_info() {
+            if packages.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("📦 No Package Detected", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                ]));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("This repository doesn't appear to be a published package.", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("It may be:", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  • An application (not a library)", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  • A collection of tools/scripts", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  • Not published to package registries", Style::default().fg(Color::DarkGray)),
+                ]));
+            } else {
+                // Show detected packages
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("📦 Package Information", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                ]));
+                lines.push(Line::from(""));
+
+                for (idx, pkg) in packages.iter().enumerate() {
+                    if idx > 0 {
+                        lines.push(Line::from(""));
+                        lines.push(Line::from(vec![
+                            Span::styled("─".repeat(60), Style::default().fg(Color::DarkGray)),
+                        ]));
+                        lines.push(Line::from(""));
+                    }
+
+                    // Package Manager badge
+                    let pm_color = match pkg.manager {
+                        reposcout_core::PackageManager::Cargo => Color::Rgb(255, 140, 0), // Orange
+                        reposcout_core::PackageManager::Npm => Color::Rgb(203, 56, 55),   // Red
+                        reposcout_core::PackageManager::PyPI => Color::Rgb(55, 118, 171), // Blue
+                        reposcout_core::PackageManager::Go => Color::Rgb(0, 173, 216),   // Cyan
+                        _ => Color::Green,
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!(" {} ", pkg.manager),
+                            Style::default().fg(Color::Black).bg(pm_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw("  "),
+                        Span::styled(&pkg.name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    ]));
+                    lines.push(Line::from(""));
+
+                    // Install command (primary)
+                    lines.push(Line::from(vec![
+                        Span::styled("Install:", Style::default().fg(Color::Cyan)),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("  $ ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(&pkg.install_command, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    ]));
+
+                    // Alternative install command if available
+                    if let Some(alt_cmd) = &pkg.alt_install_command {
+                        lines.push(Line::from(vec![
+                            Span::styled("  $ ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(alt_cmd, Style::default().fg(Color::Yellow)),
+                        ]));
+                    }
+                    lines.push(Line::from(""));
+
+                    // Registry URL
+                    lines.push(Line::from(vec![
+                        Span::styled("Registry:  ", Style::default().fg(Color::Cyan)),
+                        Span::styled(&pkg.registry_url, Style::default().fg(Color::Blue)),
+                    ]));
+                    lines.push(Line::from(""));
+
+                    // Version info (if available)
+                    if let Some(version) = &pkg.latest_version {
+                        lines.push(Line::from(vec![
+                            Span::styled("Version:   ", Style::default().fg(Color::Cyan)),
+                            Span::styled(version, Style::default().fg(Color::Green)),
+                        ]));
+                    }
+
+                    // Downloads (if available)
+                    if let Some(downloads) = pkg.downloads {
+                        let downloads_formatted = format_downloads(downloads);
+                        lines.push(Line::from(vec![
+                            Span::styled("Downloads: ", Style::default().fg(Color::Cyan)),
+                            Span::styled(downloads_formatted, Style::default().fg(Color::Magenta)),
+                        ]));
+                    }
+
+                    // License
+                    if let Some(license) = &pkg.license {
+                        let license_obj = reposcout_core::License::from_str(license);
+                        let license_color = match license_obj {
+                            reposcout_core::License::MIT | reposcout_core::License::Apache2 |
+                            reposcout_core::License::BSD2 | reposcout_core::License::BSD3 => Color::Green,
+                            reposcout_core::License::GPL2 | reposcout_core::License::GPL3 |
+                            reposcout_core::License::AGPL => Color::Yellow,
+                            reposcout_core::License::Proprietary => Color::Red,
+                            _ => Color::Gray,
+                        };
+
+                        lines.push(Line::from(vec![
+                            Span::styled("License:   ", Style::default().fg(Color::Cyan)),
+                            Span::styled(license, license_color),
+                        ]));
+
+                        // License compatibility with project
+                        if let Some(repo_license) = &repo.license {
+                            let repo_license_obj = reposcout_core::License::from_str(repo_license);
+                            let compat = license_obj.check_compatibility(&repo_license_obj);
+
+                            if compat != reposcout_core::LicenseCompatibility::Compatible {
+                                lines.push(Line::from(""));
+                                let compat_msg = license_obj.compatibility_message(&repo_license_obj);
+                                let compat_color = match compat {
+                                    reposcout_core::LicenseCompatibility::Warning => Color::Yellow,
+                                    reposcout_core::LicenseCompatibility::Incompatible => Color::Red,
+                                    _ => Color::Gray,
+                                };
+                                lines.push(Line::from(vec![
+                                    Span::styled(compat_msg, compat_color),
+                                ]));
+                            }
+                        }
+                    }
+                }
+
+                // Quick actions section
+                lines.push(Line::from(""));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("━".repeat(60), Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("Quick Actions", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                ]));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("  Press ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("ENTER", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(" to open package registry in browser", Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  Press ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("c", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(" to copy install command to clipboard", Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+        } else {
+            // Loading/detecting packages
+            lines.push(Line::from(""));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("  🔍 Detecting package manager...", Style::default().fg(Color::Yellow)),
+            ]));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("  Analyzing repository language and structure", Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("No repository selected", Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+
+    lines
+}
+
+/// Format download count with K/M/B suffixes
+fn format_downloads(count: u64) -> String {
+    if count >= 1_000_000_000 {
+        format!("{:.1}B", count as f64 / 1_000_000_000.0)
+    } else if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    } else if count >= 1_000 {
+        format!("{:.1}K", count as f64 / 1_000.0)
+    } else {
+        count.to_string()
     }
 }

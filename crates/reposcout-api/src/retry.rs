@@ -49,16 +49,26 @@ where
                 return Ok(result);
             }
             Err(err) => {
+                // Check if this is a retryable error before incrementing attempt
+                // Don't retry client errors like auth failures, 404s, etc.
+                let err_msg = err.to_string();
+                let is_retryable = !err_msg.contains("Authentication required")
+                    && !err_msg.contains("Not found")
+                    && !err_msg.contains("Unauthorized")
+                    && !err_msg.contains("Forbidden")
+                    && !err_msg.contains("Bad request");
+
+                if !is_retryable {
+                    debug!("Non-retryable error: {}", err);
+                    return Err(err);
+                }
+
                 attempt += 1;
 
                 if attempt > config.max_retries {
                     warn!("Request failed after {} attempts: {}", config.max_retries, err);
                     return Err(err);
                 }
-
-                // Check if this is a retryable error
-                // For now, we retry all errors, but we could be smarter
-                // (e.g., don't retry 404s, but do retry 500s and network errors)
 
                 warn!("Request failed (attempt {}/{}): {}. Retrying in {}ms...",
                     attempt, config.max_retries, err, delay_ms);

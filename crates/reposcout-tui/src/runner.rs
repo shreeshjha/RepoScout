@@ -51,6 +51,14 @@ where
                     InputMode::Searching => match key.code {
                         KeyCode::Enter => {
                             if !app.search_input.is_empty() {
+                                // Clear any stale state from previous searches
+                                app.all_results.clear();
+                                app.fuzzy_input.clear();
+                                app.results.clear();
+                                app.code_results.clear();
+                                // Exit bookmarks-only mode when performing a new search
+                                app.show_bookmarks_only = false;
+
                                 app.loading = true;
                                 app.enter_normal_mode();
                                 // Clear terminal before search
@@ -59,13 +67,42 @@ where
                                 terminal.draw(|f| crate::ui::render(f, &mut app))?;
 
                                 match app.search_mode {
-                                    SearchMode::Repository => {
+                                    SearchMode::Repository | SearchMode::Trending => {
                                         // Perform repository search with filters applied
+                                        // (Trending is handled separately via Enter key)
                                         let query = app.get_search_query();
                                         match on_search(&query).await {
                                             Ok(results) => {
                                                 // Record search in history
                                                 let result_count = results.len();
+
+                                                // Auto-index results for semantic search (in background)
+                                                let results_for_indexing = results.clone();
+                                                tokio::spawn(async move {
+                                                    use reposcout_semantic::{SemanticSearchEngine, SemanticConfig};
+                                                    use std::path::PathBuf;
+
+                                                    // Get semantic index path (same pattern as CLI)
+                                                    if let Some(cache_dir) = dirs_next::cache_dir() {
+                                                        let cache_path = cache_dir.join("reposcout").join("reposcout.db");
+                                                        let semantic_path = cache_path.join("semantic");
+
+                                                        let config = SemanticConfig {
+                                                            cache_path: semantic_path.to_string_lossy().to_string(),
+                                                            ..Default::default()
+                                                        };
+
+                                                        if let Ok(engine) = SemanticSearchEngine::new(config) {
+                                                            if engine.initialize().await.is_ok() {
+                                                                let repos_to_index: Vec<(reposcout_core::models::Repository, Option<String>)> =
+                                                                    results_for_indexing.into_iter().map(|r| (r, None)).collect();
+                                                                let _ = engine.index_repositories(repos_to_index).await;
+                                                                tracing::debug!("Auto-indexed {} repositories for semantic search", result_count);
+                                                            }
+                                                        }
+                                                    }
+                                                });
+
                                                 app.set_results(results);
                                                 app.loading = false;
                                                 app.error_message = None;
@@ -88,6 +125,10 @@ where
                                                 app.loading = false;
                                             }
                                         }
+                                    }
+                                    SearchMode::Notifications => {
+                                        // Notifications don't have a search box - fetched automatically
+                                        app.loading = false;
                                     }
                                     SearchMode::Code => {
                                         // Perform code search
@@ -128,17 +169,17 @@ where
                                                         platform: Platform::GitHub,
                                                         repository: item.repository.full_name.clone(),
                                                         file_path: item.path.clone(),
-                                                        language: item.repository.language.clone(),
+                                                        language: None, // Code search API doesn't return language
                                                         file_url: item.html_url.clone(),
                                                         repository_url: item.repository.html_url.clone(),
                                                         matches,
-                                                        repository_stars: item.repository.stargazers_count,
+                                                        repository_stars: 0, // Code search API doesn't return star count
                                                     });
                                                 }
                                             }
                                             Err(e) => {
                                                 let error_str = e.to_string();
-                                                let error_message = if error_str.contains("401") || error_str.contains("Unauthorized") || error_str.contains("authentication") {
+                                                let error_message = if error_str.contains("Authentication required") || error_str.contains("401") || error_str.contains("Unauthorized") {
                                                     "Code search requires authentication. Set GITHUB_TOKEN environment variable.".to_string()
                                                 } else if error_str.contains("Rate limit") {
                                                     "Rate limit exceeded. Wait a moment and try again.".to_string()
@@ -171,6 +212,77 @@ where
 
                                         app.set_code_results(all_results);
                                         app.loading = false;
+                                    }
+                                    SearchMode::Semantic => {
+                                        // Perform hybrid semantic search (keyword + semantic)
+                                        let query = app.get_search_query();
+
+                                        // First, do keyword search to get candidates
+                                        match on_search(&query).await {
+                                            Ok(keyword_results) => {
+                                                if keyword_results.is_empty() {
+                                                    app.error_message = Some("No repositories found. Try a different query.".to_string());
+                                                    app.loading = false;
+                                                } else {
+                                                    // Now perform hybrid semantic search
+                                                    use reposcout_semantic::{SemanticSearchEngine, SemanticConfig};
+                                                    let config = SemanticConfig::default();
+
+                                                    match SemanticSearchEngine::new(config) {
+                                                        Ok(engine) => {
+                                                            match engine.initialize().await {
+                                                                Ok(_) => {
+                                                                    // Convert to format expected by hybrid_search
+                                                                    let keyword_pairs: Vec<(reposcout_core::models::Repository, f32)> = keyword_results
+                                                                        .into_iter()
+                                                                        .enumerate()
+                                                                        .map(|(i, repo)| {
+                                                                            let score = 1.0 - (i as f32 / 100.0).min(0.9);
+                                                                            (repo, score)
+                                                                        })
+                                                                        .collect();
+
+                                                                    match engine.hybrid_search(&query, keyword_pairs, 30).await {
+                                                                        Ok(results) => {
+                                                                            let result_count = results.len();
+
+                                                                            // Convert semantic results to regular repositories
+                                                                            let repos: Vec<reposcout_core::models::Repository> =
+                                                                                results.into_iter().map(|r| r.repository).collect();
+
+                                                                            app.set_results(repos);
+                                                                            app.loading = false;
+                                                                            app.error_message = None;
+
+                                                                            // Save to search history
+                                                                            if let Err(e) = cache.add_search_history(&app.search_input, None, Some(result_count as i64)) {
+                                                                                tracing::warn!("Failed to save search history: {}", e);
+                                                                            }
+                                                                        }
+                                                                        Err(e) => {
+                                                                            app.error_message = Some(format!("Semantic search failed: {}", e));
+                                                                            app.loading = false;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    app.error_message = Some(format!("Failed to initialize semantic search: {}", e));
+                                                                    app.loading = false;
+                                                                }
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            app.error_message = Some(format!("Failed to create semantic engine: {}", e));
+                                                            app.loading = false;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                app.loading = false;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -252,13 +364,22 @@ where
                             // Apply selected history entry and trigger search
                             if let Some(query) = app.apply_selected_history() {
                                 app.exit_history_popup();
+
+                                // Clear any stale state from previous searches
+                                app.all_results.clear();
+                                app.fuzzy_input.clear();
+                                app.results.clear();
+                                app.code_results.clear();
+                                // Exit bookmarks-only mode when performing a new search
+                                app.show_bookmarks_only = false;
+
                                 app.loading = true;
                                 app.enter_normal_mode();
                                 terminal.clear()?;
                                 terminal.draw(|f| crate::ui::render(f, &mut app))?;
 
                                 match app.search_mode {
-                                    SearchMode::Repository => {
+                                    SearchMode::Repository | SearchMode::Trending => {
                                         let query_str = app.get_search_query();
                                         match on_search(&query_str).await {
                                             Ok(results) => {
@@ -284,12 +405,150 @@ where
                                         app.error_message = Some("Code search history not yet supported".to_string());
                                         app.loading = false;
                                     }
+                                    SearchMode::Notifications => {
+                                        // Notifications not in search history
+                                        app.loading = false;
+                                    }
+                                    SearchMode::Semantic => {
+                                        // Hybrid semantic search from history
+                                        let query_str = app.get_search_query();
+
+                                        match on_search(&query_str).await {
+                                            Ok(keyword_results) => {
+                                                if keyword_results.is_empty() {
+                                                    app.error_message = Some("No repositories found".to_string());
+                                                    app.loading = false;
+                                                } else {
+                                                    use reposcout_semantic::{SemanticSearchEngine, SemanticConfig};
+                                                    let config = SemanticConfig::default();
+
+                                                    match SemanticSearchEngine::new(config) {
+                                                        Ok(engine) => {
+                                                            match engine.initialize().await {
+                                                                Ok(_) => {
+                                                                    let keyword_pairs: Vec<(reposcout_core::models::Repository, f32)> = keyword_results
+                                                                        .into_iter()
+                                                                        .enumerate()
+                                                                        .map(|(i, repo)| {
+                                                                            let score = 1.0 - (i as f32 / 100.0).min(0.9);
+                                                                            (repo, score)
+                                                                        })
+                                                                        .collect();
+
+                                                                    match engine.hybrid_search(&query_str, keyword_pairs, 30).await {
+                                                                        Ok(results) => {
+                                                                            let repos: Vec<reposcout_core::models::Repository> =
+                                                                                results.into_iter().map(|r| r.repository).collect();
+                                                                            app.set_results(repos);
+                                                                            app.loading = false;
+                                                                            app.error_message = None;
+                                                                        }
+                                                                        Err(e) => {
+                                                                            app.error_message = Some(format!("Semantic search failed: {}", e));
+                                                                            app.loading = false;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    app.error_message = Some(format!("Failed to initialize: {}", e));
+                                                                    app.loading = false;
+                                                                }
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            app.error_message = Some(format!("Failed to create engine: {}", e));
+                                                            app.loading = false;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                app.loading = false;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                         _ => {}
                     },
                     InputMode::Normal => {
+                        // Special handling when trending options panel is open
+                        if app.show_trending_options && app.search_mode == SearchMode::Trending {
+                            match key.code {
+                                KeyCode::Esc => {
+                                    app.toggle_trending_options(); // Close panel
+                                }
+                                KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => {
+                                    app.next_trending_option();
+                                }
+                                KeyCode::Up | KeyCode::Char('k') => {
+                                    app.previous_trending_option();
+                                }
+                                KeyCode::Char(' ') => {
+                                    // Toggle based on current option
+                                    match app.trending_option_cursor {
+                                        0 => app.toggle_trending_period(),
+                                        4 => app.toggle_trending_velocity(),
+                                        _ => {}
+                                    }
+                                }
+                                KeyCode::Char('+') | KeyCode::Char('=') => {
+                                    if app.trending_option_cursor == 2 {
+                                        app.increase_trending_min_stars();
+                                    }
+                                }
+                                KeyCode::Char('-') | KeyCode::Char('_') => {
+                                    if app.trending_option_cursor == 2 {
+                                        app.decrease_trending_min_stars();
+                                    }
+                                }
+                                KeyCode::Char(c) if c.is_alphanumeric() || c == '.' || c == '-' => {
+                                    // Edit language or topic
+                                    if app.trending_option_cursor == 1 {
+                                        // Language
+                                        let mut lang = app.trending_filters.language.take().unwrap_or_default();
+                                        lang.push(c);
+                                        app.trending_filters.language = Some(lang);
+                                    } else if app.trending_option_cursor == 3 {
+                                        // Topic
+                                        let mut topic = app.trending_filters.topic.take().unwrap_or_default();
+                                        topic.push(c);
+                                        app.trending_filters.topic = Some(topic);
+                                    }
+                                }
+                                KeyCode::Backspace => {
+                                    // Clear language or topic
+                                    if app.trending_option_cursor == 1 {
+                                        if let Some(ref mut lang) = app.trending_filters.language {
+                                            lang.pop();
+                                            if lang.is_empty() {
+                                                app.trending_filters.language = None;
+                                            }
+                                        }
+                                    } else if app.trending_option_cursor == 3 {
+                                        if let Some(ref mut topic) = app.trending_filters.topic {
+                                            topic.pop();
+                                            if topic.is_empty() {
+                                                app.trending_filters.topic = None;
+                                            }
+                                        }
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    // Trigger trending search
+                                    app.toggle_trending_options(); // Close panel
+                                    // Fall through to execute search below
+                                }
+                                _ => {}
+                            }
+                            // If Enter was pressed, continue to search execution
+                            if key.code != KeyCode::Enter {
+                                continue;
+                            }
+                        }
+
                         // Handle Ctrl+R for history popup
                         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
                             // Load search history
@@ -306,6 +565,12 @@ where
                             continue;
                         }
 
+                        // Handle Ctrl+S for settings popup
+                        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+                            app.toggle_settings();
+                            continue;
+                        }
+
                         match key.code {
                         KeyCode::Esc => {
                             // Clear error message if present
@@ -317,18 +582,241 @@ where
                             break;
                         }
                         KeyCode::Char('M') => {
-                            // Toggle between repository and code search mode
+                            // Toggle between repository, code, trending, and notifications modes
                             app.toggle_search_mode();
+
+                            // Fetch notifications when entering notification mode
+                            if app.search_mode == SearchMode::Notifications {
+                                app.notifications_loading = true;
+                                terminal.clear()?;
+                                terminal.draw(|f| crate::ui::render(f, &mut app))?;
+
+                                match github_client.get_notifications(
+                                    app.notifications_show_all,
+                                    app.notifications_participating,
+                                    50
+                                ).await {
+                                    Ok(notifications) => {
+                                        app.notifications = notifications;
+                                        app.notifications_selected_index = 0;
+                                        app.notifications_loading = false;
+                                        app.error_message = None;
+                                    }
+                                    Err(e) => {
+                                        app.error_message = Some(format!("Failed to fetch notifications: {}", e));
+                                        app.notifications_loading = false;
+                                    }
+                                }
+                            }
+
                             // Force full redraw
                             terminal.clear()?;
                         }
+                        KeyCode::Char('m') => {
+                            // Mark selected notification as read (only in notification mode)
+                            if app.search_mode == SearchMode::Notifications {
+                                if let Some(notif) = app.get_selected_notification() {
+                                    let notif_id = notif.id.clone();
+                                    match github_client.mark_notification_read(&notif_id).await {
+                                        Ok(_) => {
+                                            // Refresh notifications
+                                            app.notifications_loading = true;
+                                            terminal.draw(|f| crate::ui::render(f, &mut app))?;
+
+                                            match github_client.get_notifications(
+                                                app.notifications_show_all,
+                                                app.notifications_participating,
+                                                50
+                                            ).await {
+                                                Ok(notifications) => {
+                                                    app.notifications = notifications;
+                                                    app.notifications_loading = false;
+                                                    app.error_message = None;
+                                                }
+                                                Err(e) => {
+                                                    app.error_message = Some(format!("Failed to refresh: {}", e));
+                                                    app.notifications_loading = false;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            app.error_message = Some(format!("Failed to mark as read: {}", e));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('a') => {
+                            // Mark all notifications as read (only in notification mode)
+                            if app.search_mode == SearchMode::Notifications {
+                                match github_client.mark_all_notifications_read().await {
+                                    Ok(_) => {
+                                        // Refresh notifications
+                                        app.notifications_loading = true;
+                                        terminal.draw(|f| crate::ui::render(f, &mut app))?;
+
+                                        match github_client.get_notifications(
+                                            app.notifications_show_all,
+                                            app.notifications_participating,
+                                            50
+                                        ).await {
+                                            Ok(notifications) => {
+                                                app.notifications = notifications;
+                                                app.notifications_loading = false;
+                                                app.error_message = None;
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Failed to refresh: {}", e));
+                                                app.notifications_loading = false;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        app.error_message = Some(format!("Failed to mark all as read: {}", e));
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('p') => {
+                            // Toggle participating filter (only in notification mode)
+                            if app.search_mode == SearchMode::Notifications {
+                                app.toggle_participating_filter();
+
+                                // Refresh notifications with new filter
+                                app.notifications_loading = true;
+                                terminal.draw(|f| crate::ui::render(f, &mut app))?;
+
+                                match github_client.get_notifications(
+                                    app.notifications_show_all,
+                                    app.notifications_participating,
+                                    50
+                                ).await {
+                                    Ok(notifications) => {
+                                        app.notifications = notifications;
+                                        app.notifications_selected_index = 0;
+                                        app.notifications_loading = false;
+                                        app.error_message = None;
+                                    }
+                                    Err(e) => {
+                                        app.error_message = Some(format!("Failed to fetch notifications: {}", e));
+                                        app.notifications_loading = false;
+                                    }
+                                }
+                            }
+                        }
                         KeyCode::Char('/') => {
-                            app.enter_search_mode();
+                            // Enter search mode unless in trending/notification mode
+                            if app.search_mode != SearchMode::Trending && app.search_mode != SearchMode::Notifications {
+                                app.enter_search_mode();
+                            }
+                        }
+                        KeyCode::Char('o') | KeyCode::Char('O') => {
+                            // Toggle trending options (only in trending mode)
+                            if app.search_mode == SearchMode::Trending {
+                                app.toggle_trending_options();
+                            }
+                        }
+                        KeyCode::Enter => {
+                            // Trigger trending search when in trending mode
+                            if app.search_mode == SearchMode::Trending {
+                                app.loading = true;
+                                terminal.clear()?;
+                                terminal.draw(|f| crate::ui::render(f, &mut app))?;
+
+                                // Execute trending search
+                                use reposcout_core::{TrendingFilters as CoreFilters, TrendingFinder, TrendingPeriod as CorePeriod};
+                                use reposcout_core::providers::{GitHubProvider, GitLabProvider, BitbucketProvider};
+
+                                // Convert TUI period to core period
+                                let period = match app.trending_filters.period {
+                                    crate::app::TrendingPeriod::Daily => CorePeriod::Daily,
+                                    crate::app::TrendingPeriod::Weekly => CorePeriod::Weekly,
+                                    crate::app::TrendingPeriod::Monthly => CorePeriod::Monthly,
+                                };
+
+                                // Create providers (this is a bit awkward, we need tokens)
+                                // For now, we'll use the existing on_search closure approach
+                                // But construct a query that triggers trending logic
+
+                                // Build trending query
+                                let mut query_parts = vec!["stars:>100".to_string()];
+
+                                // Add date filter based on period
+                                let date_filter = match period {
+                                    CorePeriod::Daily => "created:>=".to_string() + &(chrono::Utc::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string(),
+                                    CorePeriod::Weekly => "created:>=".to_string() + &(chrono::Utc::now() - chrono::Duration::weeks(1)).format("%Y-%m-%d").to_string(),
+                                    CorePeriod::Monthly => "created:>=".to_string() + &(chrono::Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%d").to_string(),
+                                };
+                                query_parts.push(date_filter);
+
+                                if let Some(ref lang) = app.trending_filters.language {
+                                    query_parts.push(format!("language:{}", lang));
+                                }
+
+                                if app.trending_filters.min_stars > 0 {
+                                    query_parts.push(format!("stars:>={}", app.trending_filters.min_stars));
+                                }
+
+                                if let Some(ref topic) = app.trending_filters.topic {
+                                    query_parts.push(format!("topic:{}", topic));
+                                }
+
+                                let query = query_parts.join(" ");
+
+                                match on_search(&query).await {
+                                    Ok(mut results) => {
+                                        // Sort by velocity if requested
+                                        if app.trending_filters.sort_by_velocity {
+                                            results.sort_by(|a, b| {
+                                                let age_a = (chrono::Utc::now() - a.created_at).num_days().max(1) as f64;
+                                                let age_b = (chrono::Utc::now() - b.created_at).num_days().max(1) as f64;
+                                                let velocity_a = a.stars as f64 / age_a;
+                                                let velocity_b = b.stars as f64 / age_b;
+                                                velocity_b.partial_cmp(&velocity_a).unwrap_or(std::cmp::Ordering::Equal)
+                                            });
+                                        }
+
+                                        app.set_results(results);
+                                        app.loading = false;
+                                        app.error_message = None;
+                                    }
+                                    Err(e) => {
+                                        app.error_message = Some(format!("Trending search failed: {}", e));
+                                        app.loading = false;
+                                    }
+                                }
+                            }
                         }
                         KeyCode::Char('f') => {
-                            // Enter fuzzy search mode
-                            if !app.results.is_empty() {
-                                app.enter_fuzzy_mode();
+                            if app.search_mode == SearchMode::Notifications {
+                                // Toggle all/unread filter in notification mode
+                                app.toggle_notification_filter();
+
+                                // Refresh notifications with new filter
+                                app.notifications_loading = true;
+                                terminal.draw(|f| crate::ui::render(f, &mut app))?;
+
+                                match github_client.get_notifications(
+                                    app.notifications_show_all,
+                                    app.notifications_participating,
+                                    50
+                                ).await {
+                                    Ok(notifications) => {
+                                        app.notifications = notifications;
+                                        app.notifications_selected_index = 0;
+                                        app.notifications_loading = false;
+                                        app.error_message = None;
+                                    }
+                                    Err(e) => {
+                                        app.error_message = Some(format!("Failed to fetch notifications: {}", e));
+                                        app.notifications_loading = false;
+                                    }
+                                }
+                            } else {
+                                // Enter fuzzy search mode in other modes
+                                if !app.results.is_empty() {
+                                    app.enter_fuzzy_mode();
+                                }
                             }
                         }
                         KeyCode::Char('b') => {
@@ -363,15 +851,68 @@ where
                                 }
                             }
                         }
+                        KeyCode::Char('c') => {
+                            // Copy install command when in Package preview mode
+                            if app.search_mode == SearchMode::Repository ||
+                               app.search_mode == SearchMode::Trending ||
+                               app.search_mode == SearchMode::Semantic {
+                                if app.preview_mode == crate::PreviewMode::Package {
+                                    match app.copy_package_install_command() {
+                                        Ok(()) => {
+                                            app.set_temp_error("Install command copied to clipboard!".to_string());
+                                        }
+                                        Err(e) => {
+                                            app.set_temp_error(e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         KeyCode::Char('F') => {
-                            app.toggle_filters();
-                            if app.show_filters {
-                                app.enter_filter_mode();
+                            // Toggle filters based on search mode
+                            if app.search_mode == SearchMode::Code {
+                                app.toggle_code_filters();
+                            } else {
+                                app.toggle_filters();
+                                if app.show_filters {
+                                    app.enter_filter_mode();
+                                }
                             }
                         }
                         KeyCode::Tab => {
-                            // Tab cycles through preview tabs
-                            app.next_preview_tab();
+                            // Tab cycles through preview tabs/modes based on search mode
+                            if app.search_mode == SearchMode::Code {
+                                app.toggle_code_preview_mode();
+                            } else {
+                                app.next_preview_tab();
+
+                                // If we switched to Package tab, fetch metadata if needed
+                                if app.preview_mode == crate::PreviewMode::Package {
+                                    if let Some(packages) = app.get_cached_package_info().cloned() {
+                                        // Check if we need to fetch metadata
+                                        let needs_fetch = packages.iter().any(|pkg| pkg.latest_version.is_none());
+
+                                        if needs_fetch {
+                                            app.start_package_loading();
+
+                                            // Spawn task to fetch metadata
+                                            let registry_client = reposcout_core::RegistryClient::new();
+                                            let mut packages_clone = packages.clone();
+
+                                            tokio::spawn(async move {
+                                                for pkg in &mut packages_clone {
+                                                    let _ = registry_client.fetch_metadata(pkg).await;
+                                                }
+                                                packages_clone
+                                            });
+
+                                            // Note: We'd need to handle the result and update app state
+                                            // For now, this is a basic implementation
+                                            app.stop_package_loading();
+                                        }
+                                    }
+                                }
+                            }
                         }
                         KeyCode::BackTab => {
                             // Shift+Tab cycles backward through preview tabs
@@ -619,17 +1160,21 @@ where
                                     if key.code == KeyCode::Down {
                                         app.next_code_result();
                                         app.reset_code_scroll();
+                                        app.reset_code_match_index();
                                     } else {
                                         app.scroll_code_down();
                                     }
                                 }
-                                SearchMode::Repository => {
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
                                     // If in README preview mode, scroll instead of navigating
                                     if app.preview_mode == PreviewMode::Readme {
                                         app.scroll_readme_down();
                                     } else {
                                         app.next_result();
                                     }
+                                }
+                                SearchMode::Notifications => {
+                                    app.next_notification();
                                 }
                             }
                         }
@@ -641,11 +1186,12 @@ where
                                     if key.code == KeyCode::Up {
                                         app.previous_code_result();
                                         app.reset_code_scroll();
+                                        app.reset_code_match_index();
                                     } else {
                                         app.scroll_code_up();
                                     }
                                 }
-                                SearchMode::Repository => {
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
                                     // If in README preview mode, scroll instead of navigating
                                     if app.preview_mode == PreviewMode::Readme {
                                         app.scroll_readme_up();
@@ -653,9 +1199,26 @@ where
                                         app.previous_result();
                                     }
                                 }
+                                SearchMode::Notifications => {
+                                    app.previous_notification();
+                                }
+                            }
+                        }
+                        KeyCode::Char('n') => {
+                            // Navigate to next match within current code result
+                            if app.search_mode == SearchMode::Code {
+                                app.next_code_match();
+                            }
+                        }
+                        KeyCode::Char('N') => {
+                            // Navigate to previous match within current code result
+                            if app.search_mode == SearchMode::Code {
+                                app.previous_code_match();
                             }
                         }
                         KeyCode::Enter => {
+                            // Note: Enter in Trending mode is handled above for search trigger
+                            // This handles opening repos/notifications in browser
                             match app.search_mode {
                                 SearchMode::Code => {
                                     if let Some(result) = app.selected_code_result() {
@@ -666,10 +1229,25 @@ where
                                         }
                                     }
                                 }
-                                SearchMode::Repository => {
-                                    if let Some(repo) = app.selected_repository() {
-                                        // Open in browser
+                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic => {
+                                    // Check if we're in Package preview mode
+                                    if app.preview_mode == crate::PreviewMode::Package {
+                                        // Open package registry in browser
+                                        if let Err(e) = app.open_package_registry() {
+                                            app.set_temp_error(e);
+                                        }
+                                    } else if let Some(repo) = app.selected_repository() {
+                                        // Open repository in browser
                                         let url = repo.url.clone();
+                                        if let Err(e) = open::that(&url) {
+                                            app.error_message = Some(format!("Failed to open browser: {}", e));
+                                        }
+                                    }
+                                }
+                                SearchMode::Notifications => {
+                                    if let Some(notif) = app.get_selected_notification() {
+                                        // Open notification URL in browser
+                                        let url = notif.repository.html_url.clone();
                                         if let Err(e) = open::that(&url) {
                                             app.error_message = Some(format!("Failed to open browser: {}", e));
                                         }
@@ -679,6 +1257,45 @@ where
                         }
                         _ => {}
                         }
+                    },
+                    InputMode::Settings => match key.code {
+                        KeyCode::Esc => {
+                            app.toggle_settings();
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            app.previous_setting();
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            app.next_setting();
+                        }
+                        KeyCode::Enter => {
+                            match app.settings_cursor {
+                                0 => app.start_token_input("github"),
+                                1 => app.start_token_input("gitlab"),
+                                2 => app.start_token_input("bitbucket"),
+                                3 => app.toggle_settings(), // Close
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    },
+                    InputMode::TokenInput => match key.code {
+                        KeyCode::Esc => {
+                            app.cancel_token_input();
+                        }
+                        KeyCode::Enter => {
+                            if let Err(e) = app.save_token() {
+                                app.error_message = Some(format!("Failed to save token: {}", e));
+                                app.error_timestamp = Some(std::time::SystemTime::now());
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            app.token_input_buffer.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            app.token_input_buffer.pop();
+                        }
+                        _ => {}
                     },
                 }
                 }

@@ -5,7 +5,7 @@ members = [
     "crates/reposcout-tui",
     "crates/reposcout-api",
     "crates/reposcout-cache",
-    "crates/reposcout-deps",
+    "crates/reposcout-deps", "crates/reposcout-semantic",
 ]
 resolver = "2"
 
