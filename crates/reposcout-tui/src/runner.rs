@@ -481,6 +481,36 @@ where
                         _ => {}
                     },
                     InputMode::Normal => {
+                        // Special handling when theme selector is open
+                        if app.show_theme_selector {
+                            match key.code {
+                                KeyCode::Esc => {
+                                    app.show_theme_selector = false;
+                                }
+                                KeyCode::Char('j') | KeyCode::Down => {
+                                    let themes = reposcout_core::Theme::all_themes();
+                                    if app.theme_selector_index < themes.len() - 1 {
+                                        app.theme_selector_index += 1;
+                                    }
+                                }
+                                KeyCode::Char('k') | KeyCode::Up => {
+                                    if app.theme_selector_index > 0 {
+                                        app.theme_selector_index -= 1;
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    // Apply selected theme
+                                    let themes = reposcout_core::Theme::all_themes();
+                                    if let Some(theme) = themes.get(app.theme_selector_index) {
+                                        app.set_theme(theme.clone());
+                                        app.show_theme_selector = false;
+                                    }
+                                }
+                                _ => {}
+                            }
+                            continue;
+                        }
+
                         // Special handling when trending options panel is open
                         if app.show_trending_options && app.search_mode == SearchMode::Trending {
                             match key.code {
@@ -855,6 +885,66 @@ where
                                 if let Ok(bookmarks) = cache.get_bookmarks::<reposcout_core::models::Repository>() {
                                     app.set_results(bookmarks);
                                 }
+                            }
+                        }
+                        KeyCode::Char('T') => {
+                            // Toggle theme selector
+                            app.show_theme_selector = !app.show_theme_selector;
+                            if app.show_theme_selector {
+                                // Reset selector index to current theme
+                                let themes = reposcout_core::Theme::all_themes();
+                                app.theme_selector_index = themes.iter()
+                                    .position(|t| t.name == app.current_theme.name)
+                                    .unwrap_or(0);
+                            }
+                        }
+                        KeyCode::Char('N') => {
+                            // Create new portfolio with default settings
+                            let portfolio = app.create_portfolio(
+                                format!("Portfolio {}", app.get_portfolios().len() + 1),
+                                None,
+                                reposcout_core::PortfolioColor::Blue,
+                                reposcout_core::PortfolioIcon::Work,
+                            );
+                            app.selected_portfolio_id = Some(portfolio.id.clone());
+                            app.set_temp_error(format!("Created portfolio: {}", portfolio.name));
+                        }
+                        KeyCode::Char('+') => {
+                            // Add current repository to selected portfolio
+                            if let Some(_repo) = app.selected_repository() {
+                                if let Some(portfolio_id) = &app.selected_portfolio_id.clone() {
+                                    match app.add_to_portfolio(portfolio_id, None, vec![]) {
+                                        Ok(_) => {
+                                            app.set_temp_error("Added repository to portfolio".to_string());
+                                        }
+                                        Err(e) => {
+                                            app.set_temp_error(format!("Failed to add: {}", e));
+                                        }
+                                    }
+                                } else {
+                                    app.set_temp_error("No portfolio selected. Press N to create one.".to_string());
+                                }
+                            } else {
+                                app.set_temp_error("No repository selected".to_string());
+                            }
+                        }
+                        KeyCode::Char('-') => {
+                            // Remove current repository from selected portfolio
+                            if let Some(_repo) = app.selected_repository() {
+                                if let Some(portfolio_id) = &app.selected_portfolio_id.clone() {
+                                    match app.remove_from_portfolio(portfolio_id) {
+                                        Ok(_) => {
+                                            app.set_temp_error("Removed repository from portfolio".to_string());
+                                        }
+                                        Err(e) => {
+                                            app.set_temp_error(format!("Failed to remove: {}", e));
+                                        }
+                                    }
+                                } else {
+                                    app.set_temp_error("No portfolio selected".to_string());
+                                }
+                            } else {
+                                app.set_temp_error("No repository selected".to_string());
                             }
                         }
                         KeyCode::Char('c') => {

@@ -13,7 +13,29 @@ use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
+/// Helper function to convert theme color to ratatui color
+fn theme_color(color: &reposcout_core::Color) -> Color {
+    Color::Rgb(color.r, color.g, color.b)
+}
+
+/// Helper function to create base style with theme background and foreground
+fn base_style(app: &App) -> Style {
+    Style::default()
+        .bg(theme_color(&app.current_theme.colors.background))
+        .fg(theme_color(&app.current_theme.colors.foreground))
+}
+
+/// Helper function to create border style
+fn border_style(app: &App) -> Style {
+    Style::default()
+        .fg(theme_color(&app.current_theme.colors.border))
+}
+
 pub fn render(frame: &mut Frame, app: &mut App) {
+    // Apply theme background to entire terminal
+    let background = Block::default().style(base_style(app));
+    frame.render_widget(background, frame.area());
+
     let screen_height = frame.area().height;
 
     // Dynamic header height: 4 if Bitbucket not configured (extra line for warning), else 3
@@ -137,6 +159,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         }
     }
 
+    // Render theme selector if active
+    if app.show_theme_selector {
+        crate::theme_ui::render_theme_selector(frame, app, frame.area());
+    }
+
     // Render status bar
     render_status_bar(frame, app, status_area);
 }
@@ -176,12 +203,12 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let logo = vec![Line::from(vec![
-        Span::styled(logo_text, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(logo_text, Style::default().fg(theme_color(&app.current_theme.colors.primary)).add_modifier(Modifier::BOLD)),
     ])];
 
     let logo_widget = Paragraph::new(logo)
-        .block(Block::default().borders(Borders::ALL))
-        .style(Style::default());
+        .block(Block::default().borders(Borders::ALL).border_style(border_style(app)))
+        .style(base_style(app));
     frame.render_widget(logo_widget, header_chunks[0]);
 
     // Center: Search mode and platform status (adaptive)
@@ -205,12 +232,12 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         }
     };
     let mode_color = match app.search_mode {
-        SearchMode::Repository => Color::Cyan,
-        SearchMode::Code => Color::Green,
-        SearchMode::Trending => Color::Magenta,
-        SearchMode::Notifications => Color::Yellow,
-        SearchMode::Semantic => Color::LightBlue,
-        SearchMode::Portfolio => Color::Rgb(249, 226, 175), // Soft yellow/gold
+        SearchMode::Repository => theme_color(&app.current_theme.colors.primary),
+        SearchMode::Code => theme_color(&app.current_theme.colors.success),
+        SearchMode::Trending => theme_color(&app.current_theme.colors.accent),
+        SearchMode::Notifications => theme_color(&app.current_theme.colors.warning),
+        SearchMode::Semantic => theme_color(&app.current_theme.colors.info),
+        SearchMode::Portfolio => theme_color(&app.current_theme.colors.selected),
     };
 
     // Build platform status indicators (adaptive based on width)
@@ -228,23 +255,23 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
     // Platform badges - abbreviated on narrow screens
     if screen_width < 100 {
         // Compact mode: just initials with checkmarks
-        platform_spans.push(Span::styled(" GH✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
-        platform_spans.push(Span::styled(" GL✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::styled(" GH✓ ", Style::default().fg(Color::Black).bg(theme_color(&app.current_theme.colors.success)).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::styled(" GL✓ ", Style::default().fg(Color::Black).bg(theme_color(&app.current_theme.colors.accent)).add_modifier(Modifier::BOLD)));
         if app.platform_status.bitbucket_configured {
-            platform_spans.push(Span::styled(" BB✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+            platform_spans.push(Span::styled(" BB✓ ", Style::default().fg(Color::White).bg(theme_color(&app.current_theme.colors.info)).add_modifier(Modifier::BOLD)));
         } else {
-            platform_spans.push(Span::styled(" BB✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+            platform_spans.push(Span::styled(" BB✗ ", Style::default().fg(Color::White).bg(theme_color(&app.current_theme.colors.error)).add_modifier(Modifier::BOLD)));
         }
     } else {
         // Full mode: full names
-        platform_spans.push(Span::styled(" GitHub ✓ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::styled(" GitHub ✓ ", Style::default().fg(Color::Black).bg(theme_color(&app.current_theme.colors.success)).add_modifier(Modifier::BOLD)));
         platform_spans.push(Span::raw(" "));
-        platform_spans.push(Span::styled(" GitLab ✓ ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
+        platform_spans.push(Span::styled(" GitLab ✓ ", Style::default().fg(Color::Black).bg(theme_color(&app.current_theme.colors.accent)).add_modifier(Modifier::BOLD)));
         platform_spans.push(Span::raw(" "));
         if app.platform_status.bitbucket_configured {
-            platform_spans.push(Span::styled(" Bitbucket ✓ ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)));
+            platform_spans.push(Span::styled(" Bitbucket ✓ ", Style::default().fg(Color::White).bg(theme_color(&app.current_theme.colors.info)).add_modifier(Modifier::BOLD)));
         } else {
-            platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+            platform_spans.push(Span::styled(" Bitbucket ✗ ", Style::default().fg(Color::White).bg(theme_color(&app.current_theme.colors.error)).add_modifier(Modifier::BOLD)));
         }
     }
 
@@ -259,13 +286,13 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         };
 
         platform_lines.push(Line::from(vec![
-            Span::styled(warning_text, Style::default().fg(Color::Yellow)),
+            Span::styled(warning_text, Style::default().fg(theme_color(&app.current_theme.colors.warning))),
         ]));
     }
 
     let platforms_widget = Paragraph::new(platform_lines)
-        .block(Block::default().borders(Borders::ALL))
-        .style(Style::default())
+        .block(Block::default().borders(Borders::ALL).border_style(border_style(app)))
+        .style(base_style(app))
         .alignment(ratatui::layout::Alignment::Center);
 
     // Render in center area (skip stats on narrow screens)
@@ -283,23 +310,23 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
 
     let stats = vec![
         Line::from(vec![
-            Span::styled("📚 ", Style::default().fg(Color::Magenta)),
-            Span::styled(format!("{} ", bookmark_count), Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled("📚 ", Style::default().fg(theme_color(&app.current_theme.colors.accent))),
+            Span::styled(format!("{} ", bookmark_count), Style::default().fg(theme_color(&app.current_theme.colors.accent)).add_modifier(Modifier::BOLD)),
             Span::raw("  "),
-            Span::styled("📊 ", Style::default().fg(Color::Green)),
-            Span::styled(format!("{}", result_count), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("📊 ", Style::default().fg(theme_color(&app.current_theme.colors.success))),
+            Span::styled(format!("{}", result_count), Style::default().fg(theme_color(&app.current_theme.colors.success)).add_modifier(Modifier::BOLD)),
         ]),
     ];
     let stats_widget = Paragraph::new(stats)
-        .block(Block::default().borders(Borders::ALL))
-        .style(Style::default())
+        .block(Block::default().borders(Borders::ALL).border_style(border_style(app)))
+        .style(base_style(app))
         .alignment(ratatui::layout::Alignment::Right);
     frame.render_widget(stats_widget, header_chunks[2]);
 }
 
 fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     let input_style = match app.input_mode {
-        InputMode::Searching => Style::default().fg(Color::Yellow),
+        InputMode::Searching => Style::default().fg(theme_color(&app.current_theme.colors.warning)),
         InputMode::Normal | InputMode::Filtering | InputMode::EditingFilter | InputMode::FuzzySearch | InputMode::HistoryPopup | InputMode::Settings | InputMode::TokenInput => Style::default(),
     };
 
@@ -347,12 +374,16 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let input = Paragraph::new(content)
-        .style(input_style)
+        .style(base_style(app).patch(input_style))
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(title)
-                .border_style(input_style),
+                .border_style(if matches!(app.input_mode, InputMode::Searching) {
+                    input_style
+                } else {
+                    border_style(app)
+                }),
         );
 
     frame.render_widget(input, area);
@@ -385,7 +416,7 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
             Line::from(""),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  🔄 Searching...", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("  🔄 Searching...", Style::default().fg(theme_color(&app.current_theme.colors.info)).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(""),
             Line::from(vec![
@@ -394,7 +425,8 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
         ];
 
         let paragraph = Paragraph::new(loading_text)
-            .block(Block::default().borders(Borders::ALL).title(" Results (Loading...) "))
+            .block(Block::default().borders(Borders::ALL).title(" Results (Loading...) ").border_style(border_style(app)))
+            .style(base_style(app))
             .alignment(ratatui::layout::Alignment::Center);
 
         frame.render_widget(paragraph, area);
@@ -421,15 +453,15 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
 
             // Line 1: Bookmark + Stats + Name (BRIGHT and DISTINCTIVE)
             let name_style = if is_selected {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default().fg(theme_color(&app.current_theme.colors.selected)).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) // Cyan makes repo names stand out
+                Style::default().fg(theme_color(&app.current_theme.colors.primary)).add_modifier(Modifier::BOLD)
             };
 
             let line1 = Line::from(vec![
                 Span::styled(
                     if is_bookmarked { "📚" } else { "  " },
-                    Style::default().fg(Color::Magenta),
+                    Style::default().fg(theme_color(&app.current_theme.colors.accent)),
                 ),
                 Span::raw(" "),
                 Span::styled(
@@ -525,10 +557,12 @@ fn render_results_list(frame: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(title))
+        .block(Block::default().borders(Borders::ALL).title(title).border_style(border_style(app)))
+        .style(base_style(app))
         .highlight_style(
             Style::default()
-                .bg(Color::DarkGray)
+                .bg(theme_color(&app.current_theme.colors.selected_bg))
+                .fg(theme_color(&app.current_theme.colors.selected))
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol(">> ");
@@ -562,7 +596,8 @@ fn render_preview(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let paragraph = Paragraph::new(content)
-        .block(Block::default().borders(Borders::ALL).title(""))
+        .block(Block::default().borders(Borders::ALL).title("").border_style(border_style(app)))
+        .style(base_style(app))
         .wrap(Wrap { trim: true })
         .scroll((scroll_offset, 0));
 
@@ -613,8 +648,8 @@ fn render_preview_tabs(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(""),
         tabs_line,
     ])
-    .block(Block::default().borders(Borders::ALL).title("Preview"))
-    .style(Style::default().fg(Color::White));
+    .block(Block::default().borders(Borders::ALL).title("Preview").border_style(border_style(app)))
+    .style(base_style(app));
 
     frame.render_widget(tabs_widget, area);
 }
@@ -1450,29 +1485,29 @@ fn render_filters_panel(frame: &mut Frame, app: &App, area: Rect) {
 
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let status = if let Some(error) = &app.error_message {
-        vec![Span::styled(error, Style::default().fg(Color::Red))]
+        vec![Span::styled(error, Style::default().fg(theme_color(&app.current_theme.colors.error)))]
     } else {
         vec![match app.input_mode {
             InputMode::Searching => {
-                Span::styled("SEARCH MODE | ESC: normal mode | ENTER: search", Style::default().fg(Color::Yellow))
+                Span::styled("SEARCH MODE | ESC: normal mode | ENTER: search", Style::default().fg(theme_color(&app.current_theme.colors.warning)))
             }
             InputMode::Filtering => {
-                Span::styled("FILTER MODE | TAB/j/k: navigate | ENTER: edit | DEL: clear | ESC: close", Style::default().fg(Color::Yellow))
+                Span::styled("FILTER MODE | TAB/j/k: navigate | ENTER: edit | DEL: clear | ESC: close", Style::default().fg(theme_color(&app.current_theme.colors.warning)))
             }
             InputMode::EditingFilter => {
-                Span::styled("EDITING | Type value | ENTER: save | ESC: cancel", Style::default().fg(Color::Green))
+                Span::styled("EDITING | Type value | ENTER: save | ESC: cancel", Style::default().fg(theme_color(&app.current_theme.colors.success)))
             }
             InputMode::FuzzySearch => {
-                Span::styled("FUZZY SEARCH | Type to filter | ESC: exit", Style::default().fg(Color::Magenta))
+                Span::styled("FUZZY SEARCH | Type to filter | ESC: exit", Style::default().fg(theme_color(&app.current_theme.colors.accent)))
             }
             InputMode::HistoryPopup => {
-                Span::styled("HISTORY | j/k: navigate | ENTER: select | ESC: close", Style::default().fg(Color::Cyan))
+                Span::styled("HISTORY | j/k: navigate | ENTER: select | ESC: close", Style::default().fg(theme_color(&app.current_theme.colors.info)))
             }
             InputMode::Settings => {
-                Span::styled("SETTINGS | j/k: navigate | ENTER: select platform | ESC: close", Style::default().fg(Color::Cyan))
+                Span::styled("SETTINGS | j/k: navigate | ENTER: select platform | ESC: close", Style::default().fg(theme_color(&app.current_theme.colors.info)))
             }
             InputMode::TokenInput => {
-                Span::styled("TOKEN INPUT | Type token | ENTER: save | ESC: cancel", Style::default().fg(Color::Yellow))
+                Span::styled("TOKEN INPUT | Type token | ENTER: save | ESC: cancel", Style::default().fg(theme_color(&app.current_theme.colors.warning)))
             }
             InputMode::Normal => {
                 use crate::PreviewMode;
@@ -1508,7 +1543,8 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         }]
     };
 
-    let paragraph = Paragraph::new(Line::from(status));
+    let paragraph = Paragraph::new(Line::from(status))
+        .style(base_style(app));
     frame.render_widget(paragraph, area);
 }
 
@@ -2646,11 +2682,12 @@ fn render_notifications_list(frame: &mut Frame, app: &App, area: Rect) {
             .borders(Borders::ALL)
             .title(title)
             .border_style(if app.notifications_loading {
-                Style::default().fg(Color::Yellow)
+                Style::default().fg(theme_color(&app.current_theme.colors.warning))
             } else {
-                Style::default().fg(Color::Cyan)
+                border_style(app)
             }),
-    );
+    )
+    .style(base_style(app));
 
     frame.render_widget(list, area);
 }
@@ -2717,8 +2754,9 @@ fn render_notification_preview(frame: &mut Frame, app: &App, area: Rect) {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Notification Details | Enter: Open in Browser ")
-                    .border_style(Style::default().fg(Color::Cyan)),
+                    .border_style(border_style(app)),
             )
+            .style(base_style(app))
             .wrap(Wrap { trim: true });
 
         frame.render_widget(paragraph, area);
@@ -2728,8 +2766,9 @@ fn render_notification_preview(frame: &mut Frame, app: &App, area: Rect) {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Notification Details ")
-                    .border_style(Style::default().fg(Color::DarkGray)),
-            );
+                    .border_style(border_style(app)),
+            )
+            .style(base_style(app));
 
         frame.render_widget(paragraph, area);
     }
