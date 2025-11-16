@@ -12,6 +12,7 @@ pub enum SearchMode {
     Notifications,  // Viewing GitHub notifications
     Semantic,       // Semantic search with natural language
     Portfolio,      // Viewing portfolio/watchlist
+    Discovery,      // Enhanced discovery (New & Notable, Hidden Gems, Topics, Awesome Lists)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -275,6 +276,17 @@ pub struct App {
     pub selected_portfolio_id: Option<String>,
     pub show_portfolio_manager: bool,
     pub portfolio_cursor: usize,
+    // Discovery state
+    pub discovery_category: DiscoveryCategory,
+    pub discovery_cursor: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscoveryCategory {
+    NewAndNotable,  // Recently created repos gaining traction
+    HiddenGems,     // Quality repos with low stars
+    Topics,         // Browse by topic categories
+    AwesomeLists,   // Curated awesome-* collections
 }
 
 #[derive(Debug, Clone)]
@@ -356,6 +368,8 @@ impl App {
             selected_portfolio_id: None,
             show_portfolio_manager: false,
             portfolio_cursor: 0,
+            discovery_category: DiscoveryCategory::NewAndNotable,
+            discovery_cursor: 0,
         }
     }
 
@@ -833,7 +847,8 @@ impl App {
             SearchMode::Trending => SearchMode::Notifications,
             SearchMode::Notifications => SearchMode::Semantic,
             SearchMode::Semantic => SearchMode::Portfolio,
-            SearchMode::Portfolio => SearchMode::Repository,
+            SearchMode::Portfolio => SearchMode::Discovery,
+            SearchMode::Discovery => SearchMode::Repository,
         };
         // Clear results and errors when switching modes
         self.code_results.clear();
@@ -844,6 +859,28 @@ impl App {
         self.notifications_selected_index = 0;
         self.error_message = None;
         self.loading = false;
+    }
+
+    /// Cycle through discovery categories
+    pub fn next_discovery_category(&mut self) {
+        self.discovery_category = match self.discovery_category {
+            DiscoveryCategory::NewAndNotable => DiscoveryCategory::HiddenGems,
+            DiscoveryCategory::HiddenGems => DiscoveryCategory::Topics,
+            DiscoveryCategory::Topics => DiscoveryCategory::AwesomeLists,
+            DiscoveryCategory::AwesomeLists => DiscoveryCategory::NewAndNotable,
+        };
+        self.discovery_cursor = 0;
+    }
+
+    /// Previous discovery category
+    pub fn previous_discovery_category(&mut self) {
+        self.discovery_category = match self.discovery_category {
+            DiscoveryCategory::NewAndNotable => DiscoveryCategory::AwesomeLists,
+            DiscoveryCategory::HiddenGems => DiscoveryCategory::NewAndNotable,
+            DiscoveryCategory::Topics => DiscoveryCategory::HiddenGems,
+            DiscoveryCategory::AwesomeLists => DiscoveryCategory::Topics,
+        };
+        self.discovery_cursor = 0;
     }
 
     /// Get the currently selected code search result

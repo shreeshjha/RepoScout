@@ -133,6 +133,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             // Render portfolio details
             crate::portfolio_ui::render_portfolio_detail(frame, app, content_chunks[1]);
         }
+        SearchMode::Discovery => {
+            // Different layout for discovery: sidebar (30%) + content (70%)
+            let discovery_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(30),  // Categories sidebar
+                    Constraint::Percentage(70),  // Content area
+                ])
+                .split(content_area);
+
+            // Render discovery categories sidebar
+            crate::discovery_ui::render_discovery_sidebar(frame, app, discovery_chunks[0]);
+            // Render discovery content
+            crate::discovery_ui::render_discovery_content(frame, app, discovery_chunks[1]);
+        }
     }
 
     // Render fuzzy search overlay if active
@@ -220,6 +235,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
             SearchMode::Notifications => "Notif",
             SearchMode::Semantic => "Semantic",
             SearchMode::Portfolio => "Portfolio",
+            SearchMode::Discovery => "Discovery",
         }
     } else {
         match app.search_mode {
@@ -229,6 +245,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
             SearchMode::Notifications => "Notifications",
             SearchMode::Semantic => "Semantic Search (AI)",
             SearchMode::Portfolio => "Portfolio/Watchlist",
+            SearchMode::Discovery => "Enhanced Discovery",
         }
     };
     let mode_color = match app.search_mode {
@@ -238,6 +255,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         SearchMode::Notifications => theme_color(&app.current_theme.colors.warning),
         SearchMode::Semantic => theme_color(&app.current_theme.colors.info),
         SearchMode::Portfolio => theme_color(&app.current_theme.colors.selected),
+        SearchMode::Discovery => Color::Rgb(147, 112, 219), // Purple for discovery
     };
 
     // Build platform status indicators (adaptive based on width)
@@ -370,6 +388,16 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
             let repo_count = app.portfolio_manager.total_repo_count();
             ("📁 Portfolio/Watchlist (P to manage, N to create new)",
              format!("{} portfolios | {} repos watched", portfolio_count, repo_count))
+        }
+        SearchMode::Discovery => {
+            let category_name = match app.discovery_category {
+                crate::DiscoveryCategory::NewAndNotable => "New & Notable",
+                crate::DiscoveryCategory::HiddenGems => "Hidden Gems",
+                crate::DiscoveryCategory::Topics => "Topics",
+                crate::DiscoveryCategory::AwesomeLists => "Awesome Lists",
+            };
+            ("🔍 Enhanced Discovery (Tab/h/l: switch category, ENTER: search)",
+             category_name.to_string())
         }
     };
 
@@ -1517,9 +1545,9 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                     }
                     SearchMode::Repository => {
                         if app.preview_mode == PreviewMode::Readme {
-                            Span::styled("README | j/k: scroll | TAB: next tab | Ctrl+R: history | Ctrl+S: settings | M: switch mode | q: quit", Style::default().fg(Color::Cyan))
+                            Span::styled("README | j/k: scroll | TAB: tab | D: discovery | M: mode | Ctrl+R: history | Ctrl+S: settings | q: quit", Style::default().fg(Color::Cyan))
                         } else {
-                            Span::raw("j/k: navigate | /: search | Ctrl+R: history | Ctrl+S: settings | f: fuzzy | F: filters | M: mode | TAB: tabs | b: bookmark | q: quit")
+                            Span::raw("j/k: navigate | /: search | f: fuzzy | F: filters | D: discovery | M: mode | TAB: tabs | b: bookmark | q: quit")
                         }
                     }
                     SearchMode::Trending => {
@@ -1537,6 +1565,9 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                     }
                     SearchMode::Portfolio => {
                         Span::styled("j/k: navigate | N: new portfolio | +: add repo | -: remove | ENTER: view | T: theme | M: mode | q: quit", Style::default().fg(Color::Rgb(249, 226, 175)))
+                    }
+                    SearchMode::Discovery => {
+                        Span::styled("Tab/h/l: category | j/k: navigate | 1/2/3: quick search | ENTER: search | D/Backspace: return | M: mode | q: quit", Style::default().fg(Color::Rgb(147, 112, 219)))
                     }
                 }
             }

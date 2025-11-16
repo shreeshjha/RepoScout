@@ -287,6 +287,10 @@ where
                                         // Portfolio mode doesn't perform searches
                                         app.loading = false;
                                     }
+                                    SearchMode::Discovery => {
+                                        // Discovery mode uses special queries - handled by Enter key
+                                        app.loading = false;
+                                    }
                                 }
                             }
                         }
@@ -473,6 +477,10 @@ where
                                     }
                                     SearchMode::Portfolio => {
                                         // Portfolio mode doesn't use search history
+                                        app.loading = false;
+                                    }
+                                    SearchMode::Discovery => {
+                                        // Discovery mode doesn't use search history
                                         app.loading = false;
                                     }
                                 }
@@ -821,6 +829,134 @@ where
                                         app.loading = false;
                                     }
                                 }
+                            } else if app.search_mode == SearchMode::Discovery {
+                                app.set_error("DEBUG: Discovery Enter pressed".to_string());
+                                // Trigger search based on discovery category
+                                match app.discovery_category {
+                                    crate::DiscoveryCategory::NewAndNotable => {
+                                        let query = reposcout_core::discovery::new_and_notable_query(None, 30);
+                                        app.search_input = query.clone();
+                                        app.search_mode = SearchMode::Repository;
+                                        app.loading = true;
+                                        app.set_error(format!("DEBUG: Searching: {}", query));
+
+                                        match on_search(&query).await {
+                                            Ok(results) => {
+                                                let count = results.len();
+                                                app.set_results(results);
+                                                app.selected_index = 0;
+                                                app.list_state.select(Some(0));
+                                                app.loading = false;
+                                                app.set_error(format!("DEBUG: Found {} repos", count));
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                app.loading = false;
+                                            }
+                                        }
+                                    }
+                                    crate::DiscoveryCategory::HiddenGems => {
+                                        let query = reposcout_core::discovery::hidden_gems_query(None, 100);
+                                        app.search_input = query.clone();
+                                        app.search_mode = SearchMode::Repository;
+                                        app.loading = true;
+                                        app.set_error(format!("DEBUG: Searching gems: {}", query));
+
+                                        match on_search(&query).await {
+                                            Ok(results) => {
+                                                let count = results.len();
+                                                app.set_results(results);
+                                                app.selected_index = 0;
+                                                app.list_state.select(Some(0));
+                                                app.loading = false;
+                                                app.set_error(format!("DEBUG: Found {} gems", count));
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!("Search failed: {}", e));
+                                                app.loading = false;
+                                            }
+                                        }
+                                    }
+                                    crate::DiscoveryCategory::Topics => {
+                                        let topics = reposcout_core::discovery::popular_topics();
+                                        if let Some((topic, name)) = topics.get(app.discovery_cursor) {
+                                            let query = reposcout_core::discovery::topic_query(topic, 10);
+                                            app.search_input = query.clone();
+                                            app.search_mode = SearchMode::Repository;
+                                            app.loading = true;
+                                            app.set_error(format!("DEBUG: Searching topic {}: {}", name, query));
+
+                                            match on_search(&query).await {
+                                                Ok(results) => {
+                                                    let count = results.len();
+                                                    app.set_results(results);
+                                                    app.selected_index = 0;
+                                                    app.list_state.select(Some(0));
+                                                    app.loading = false;
+                                                    app.set_error(format!("DEBUG: Found {} for {}", count, name));
+                                                }
+                                                Err(e) => {
+                                                    app.error_message = Some(format!("Search failed: {}", e));
+                                                    app.loading = false;
+                                                }
+                                            }
+                                        } else {
+                                            app.set_error("DEBUG: No topic selected!".to_string());
+                                        }
+                                    }
+                                    crate::DiscoveryCategory::AwesomeLists => {
+                                        let awesome_lists = reposcout_core::discovery::awesome_lists();
+                                        if let Some((repo, name)) = awesome_lists.get(app.discovery_cursor) {
+                                            let url = format!("https://github.com/{}", repo);
+                                            app.set_error(format!("DEBUG: Opening {}", name));
+                                            if let Err(e) = open::that(&url) {
+                                                app.error_message = Some(format!("Failed to open browser: {}", e));
+                                            }
+                                        } else {
+                                            app.set_error("DEBUG: No list selected!".to_string());
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Handle opening repos/code/notifications in browser
+                                match app.search_mode {
+                                    SearchMode::Code => {
+                                        if let Some(result) = app.selected_code_result() {
+                                            let url = result.file_url.clone();
+                                            app.set_error(format!("DEBUG: Opening code at {}", url));
+                                            if let Err(e) = open::that(&url) {
+                                                app.error_message = Some(format!("Failed to open browser: {}", e));
+                                            }
+                                        }
+                                    }
+                                    SearchMode::Repository | SearchMode::Semantic | SearchMode::Portfolio => {
+                                        app.set_error(format!("DEBUG: Repo Enter - idx:{} len:{}", app.selected_index, app.results.len()));
+                                        if app.preview_mode == crate::PreviewMode::Package {
+                                            if let Err(e) = app.open_package_registry() {
+                                                app.set_error(e);
+                                            }
+                                        } else if let Some(repo) = app.selected_repository() {
+                                            let url = repo.url.clone();
+                                            let repo_name = repo.full_name.clone();
+                                            app.set_error(format!("DEBUG: Opening {} at {}", repo_name, url));
+                                            if let Err(e) = open::that(&url) {
+                                                app.error_message = Some(format!("Failed to open browser: {}", e));
+                                            }
+                                        } else {
+                                            app.set_error(format!("DEBUG ERROR: No repo! idx={} len={}", app.selected_index, app.results.len()));
+                                        }
+                                    }
+                                    SearchMode::Notifications => {
+                                        if let Some(notif) = app.get_selected_notification() {
+                                            let url = notif.repository.html_url.clone();
+                                            app.set_error(format!("DEBUG: Opening notification at {}", url));
+                                            if let Err(e) = open::that(&url) {
+                                                app.error_message = Some(format!("Failed to open browser: {}", e));
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
                         KeyCode::Char('f') => {
@@ -899,15 +1035,20 @@ where
                             }
                         }
                         KeyCode::Char('N') => {
-                            // Create new portfolio with default settings
-                            let portfolio = app.create_portfolio(
-                                format!("Portfolio {}", app.get_portfolios().len() + 1),
-                                None,
-                                reposcout_core::PortfolioColor::Blue,
-                                reposcout_core::PortfolioIcon::Work,
-                            );
-                            app.selected_portfolio_id = Some(portfolio.id.clone());
-                            app.set_temp_error(format!("Created portfolio: {}", portfolio.name));
+                            if app.search_mode == SearchMode::Code {
+                                // Navigate to previous match within current code result
+                                app.previous_code_match();
+                            } else {
+                                // Create new portfolio with default settings
+                                let portfolio = app.create_portfolio(
+                                    format!("Portfolio {}", app.get_portfolios().len() + 1),
+                                    None,
+                                    reposcout_core::PortfolioColor::Blue,
+                                    reposcout_core::PortfolioIcon::Work,
+                                );
+                                app.selected_portfolio_id = Some(portfolio.id.clone());
+                                app.set_temp_error(format!("Created portfolio: {}", portfolio.name));
+                            }
                         }
                         KeyCode::Char('+') => {
                             // Add current repository to selected portfolio
@@ -977,7 +1118,11 @@ where
                         }
                         KeyCode::Tab => {
                             // Tab cycles through preview tabs/modes based on search mode
-                            if app.search_mode == SearchMode::Code {
+                            if app.search_mode == SearchMode::Discovery {
+                                // In Discovery mode, Tab switches to next category
+                                app.next_discovery_category();
+                                app.discovery_cursor = 0; // Reset cursor when switching categories
+                            } else if app.search_mode == SearchMode::Code {
                                 app.toggle_code_preview_mode();
                             } else {
                                 app.next_preview_tab();
@@ -1082,8 +1227,15 @@ where
                         KeyCode::Char('d') | KeyCode::Char('D') => {
                             use crate::PreviewMode;
 
-                            // Fetch dependencies for current repository
-                            if let Some(repo) = app.selected_repository() {
+                            // Shift+D: Quick shortcut to Discovery mode
+                            if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT)
+                               && app.search_mode != SearchMode::Discovery {
+                                app.search_mode = SearchMode::Discovery;
+                                app.results.clear();
+                                app.error_message = None;
+                                app.discovery_cursor = 0; // Reset cursor
+                            } else if let Some(repo) = app.selected_repository() {
+                                // Regular 'd': Fetch dependencies for current repository
                                 let repo_name = repo.full_name.clone();
                                 let platform = repo.platform;
                                 let language = repo.language.clone();
@@ -1248,6 +1400,98 @@ where
                                 }
                             }
                         }
+                        KeyCode::Char('h') => {
+                            // In Discovery mode, go to previous category
+                            if app.search_mode == SearchMode::Discovery {
+                                app.previous_discovery_category();
+                                app.discovery_cursor = 0; // Reset cursor when switching categories
+                            }
+                        }
+                        KeyCode::Char('l') => {
+                            // In Discovery mode, go to next category
+                            if app.search_mode == SearchMode::Discovery {
+                                app.next_discovery_category();
+                                app.discovery_cursor = 0; // Reset cursor when switching categories
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            // Quick shortcut to return to Discovery mode
+                            if app.search_mode != SearchMode::Discovery {
+                                app.search_mode = SearchMode::Discovery;
+                                app.results.clear();
+                                app.error_message = None;
+                                app.discovery_cursor = 0; // Reset cursor
+                            }
+                        }
+                        KeyCode::Char('1') => {
+                            // In New & Notable, search last 7 days
+                            if app.search_mode == SearchMode::Discovery
+                               && app.discovery_category == crate::DiscoveryCategory::NewAndNotable {
+                                let query = reposcout_core::discovery::new_and_notable_query(None, 7);
+                                app.search_input = query.clone();
+                                app.search_mode = SearchMode::Repository;
+                                app.loading = true;
+
+                                match on_search(&query).await {
+                                    Ok(results) => {
+                                        app.set_results(results);
+                                        app.selected_index = 0;
+                                        app.list_state.select(Some(0));
+                                        app.loading = false;
+                                    }
+                                    Err(e) => {
+                                        app.error_message = Some(format!("Search failed: {}", e));
+                                        app.loading = false;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('2') => {
+                            // In New & Notable, search last 30 days
+                            if app.search_mode == SearchMode::Discovery
+                               && app.discovery_category == crate::DiscoveryCategory::NewAndNotable {
+                                let query = reposcout_core::discovery::new_and_notable_query(None, 30);
+                                app.search_input = query.clone();
+                                app.search_mode = SearchMode::Repository;
+                                app.loading = true;
+
+                                match on_search(&query).await {
+                                    Ok(results) => {
+                                        app.set_results(results);
+                                        app.selected_index = 0;
+                                        app.list_state.select(Some(0));
+                                        app.loading = false;
+                                    }
+                                    Err(e) => {
+                                        app.error_message = Some(format!("Search failed: {}", e));
+                                        app.loading = false;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('3') => {
+                            // In New & Notable, search last 90 days
+                            if app.search_mode == SearchMode::Discovery
+                               && app.discovery_category == crate::DiscoveryCategory::NewAndNotable {
+                                let query = reposcout_core::discovery::new_and_notable_query(None, 90);
+                                app.search_input = query.clone();
+                                app.search_mode = SearchMode::Repository;
+                                app.loading = true;
+
+                                match on_search(&query).await {
+                                    Ok(results) => {
+                                        app.set_results(results);
+                                        app.selected_index = 0;
+                                        app.list_state.select(Some(0));
+                                        app.loading = false;
+                                    }
+                                    Err(e) => {
+                                        app.error_message = Some(format!("Search failed: {}", e));
+                                        app.loading = false;
+                                    }
+                                }
+                            }
+                        }
                         KeyCode::Char('j') | KeyCode::Down => {
                             use crate::PreviewMode;
                             match app.search_mode {
@@ -1271,6 +1515,24 @@ where
                                 }
                                 SearchMode::Notifications => {
                                     app.next_notification();
+                                }
+                                SearchMode::Discovery => {
+                                    // Navigate within discovery category items
+                                    match app.discovery_category {
+                                        crate::DiscoveryCategory::Topics => {
+                                            let max = reposcout_core::discovery::popular_topics().len();
+                                            if app.discovery_cursor < max.saturating_sub(1) {
+                                                app.discovery_cursor += 1;
+                                            }
+                                        }
+                                        crate::DiscoveryCategory::AwesomeLists => {
+                                            let max = reposcout_core::discovery::awesome_lists().len();
+                                            if app.discovery_cursor < max.saturating_sub(1) {
+                                                app.discovery_cursor += 1;
+                                            }
+                                        }
+                                        _ => {} // New & Notable and Hidden Gems don't have navigation
+                                    }
                                 }
                             }
                         }
@@ -1298,57 +1560,23 @@ where
                                 SearchMode::Notifications => {
                                     app.previous_notification();
                                 }
+                                SearchMode::Discovery => {
+                                    // Navigate within discovery category items
+                                    match app.discovery_category {
+                                        crate::DiscoveryCategory::Topics | crate::DiscoveryCategory::AwesomeLists => {
+                                            if app.discovery_cursor > 0 {
+                                                app.discovery_cursor -= 1;
+                                            }
+                                        }
+                                        _ => {} // New & Notable and Hidden Gems don't have navigation
+                                    }
+                                }
                             }
                         }
                         KeyCode::Char('n') => {
                             // Navigate to next match within current code result
                             if app.search_mode == SearchMode::Code {
                                 app.next_code_match();
-                            }
-                        }
-                        KeyCode::Char('N') => {
-                            // Navigate to previous match within current code result
-                            if app.search_mode == SearchMode::Code {
-                                app.previous_code_match();
-                            }
-                        }
-                        KeyCode::Enter => {
-                            // Note: Enter in Trending mode is handled above for search trigger
-                            // This handles opening repos/notifications in browser
-                            match app.search_mode {
-                                SearchMode::Code => {
-                                    if let Some(result) = app.selected_code_result() {
-                                        // Open file URL in browser
-                                        let url = result.file_url.clone();
-                                        if let Err(e) = open::that(&url) {
-                                            app.error_message = Some(format!("Failed to open browser: {}", e));
-                                        }
-                                    }
-                                }
-                                SearchMode::Repository | SearchMode::Trending | SearchMode::Semantic | SearchMode::Portfolio => {
-                                    // Check if we're in Package preview mode
-                                    if app.preview_mode == crate::PreviewMode::Package {
-                                        // Open package registry in browser
-                                        if let Err(e) = app.open_package_registry() {
-                                            app.set_temp_error(e);
-                                        }
-                                    } else if let Some(repo) = app.selected_repository() {
-                                        // Open repository in browser
-                                        let url = repo.url.clone();
-                                        if let Err(e) = open::that(&url) {
-                                            app.error_message = Some(format!("Failed to open browser: {}", e));
-                                        }
-                                    }
-                                }
-                                SearchMode::Notifications => {
-                                    if let Some(notif) = app.get_selected_notification() {
-                                        // Open notification URL in browser
-                                        let url = notif.repository.html_url.clone();
-                                        if let Err(e) = open::that(&url) {
-                                            app.error_message = Some(format!("Failed to open browser: {}", e));
-                                        }
-                                    }
-                                }
                             }
                         }
                         _ => {}

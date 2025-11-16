@@ -1,5 +1,6 @@
 // Core business logic lives here - the brain of the operation
 pub mod config;
+pub mod discovery;
 pub mod error;
 pub mod export;
 pub mod health;
