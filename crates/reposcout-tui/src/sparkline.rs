@@ -207,7 +207,7 @@ mod tests {
     fn test_sparkline_rendering() {
         let data = vec![1.0, 2.0, 3.0, 5.0, 8.0, 5.0, 3.0, 2.0];
         let sparkline = render_sparkline(&data);
-        assert_eq!(sparkline.len(), 8);
+        assert_eq!(sparkline.chars().count(), 8);
         assert!(sparkline.contains('█')); // Should have max char
     }
 
