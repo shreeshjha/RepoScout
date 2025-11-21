@@ -297,9 +297,9 @@ async fn test_index_update() {
     // Should still have 1 entry (updated, not added)
     assert_eq!(index.len(), 1);
 
-    // Verify metadata is updated
+    // Verify metadata is updated (note: text is lowercased by clean_text)
     let metadata = index.get_metadata("GitHub:user/test").unwrap();
-    assert!(metadata.source_text.contains("Updated description"));
+    assert!(metadata.source_text.contains("updated description"));
 }
 
 #[tokio::test]
