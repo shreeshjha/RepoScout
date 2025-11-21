@@ -17,7 +17,7 @@ pub fn render_sparkline(data: &[f64]) -> String {
 
     data.iter()
         .map(|&v| {
-            let ratio = (v / max * 7.0).min(7.0).max(0.0);
+            let ratio = (v / max * 7.0).clamp(0.0, 7.0);
             chars[ratio as usize]
         })
         .collect()
@@ -58,7 +58,7 @@ pub fn generate_activity_sparkline(
     // - Recent push (shows current activity level)
 
     let mut activity_data = Vec::new();
-    let base_activity = (stars as f64 / age_days as f64 * 100.0).min(10.0).max(1.0);
+    let base_activity = (stars as f64 / age_days as f64 * 100.0).clamp(1.0, 10.0);
 
     for i in 0..periods {
         let period_progress = i as f64 / periods as f64;
@@ -72,14 +72,13 @@ pub fn generate_activity_sparkline(
             0.8
         } else {
             // Recent period - check if still active
-            let recency_boost = if days_since_push < 30 {
+            if days_since_push < 30 {
                 1.2 // Recently active
             } else if days_since_push < 90 {
                 0.7 // Moderately active
             } else {
                 0.4 // Less active
-            };
-            recency_boost
+            }
         };
 
         let value = base_activity * age_factor;
@@ -90,10 +89,7 @@ pub fn generate_activity_sparkline(
 }
 
 /// Generate star velocity sparkline showing growth rate over time
-pub fn generate_star_velocity_sparkline(
-    created_at: DateTime<Utc>,
-    stars: u32,
-) -> String {
+pub fn generate_star_velocity_sparkline(created_at: DateTime<Utc>, stars: u32) -> String {
     let now = Utc::now();
     let age_weeks = (now - created_at).num_weeks().max(1);
 
@@ -151,7 +147,7 @@ pub fn generate_issue_activity_sparkline(
 
     // Issue activity correlates with popularity and community engagement
     let issue_rate = open_issues as f64 / age_months as f64;
-    let engagement = (stars as f64 / 100.0).min(10.0).max(1.0);
+    let engagement = (stars as f64 / 100.0).clamp(1.0, 10.0);
 
     let mut activity_data = Vec::new();
 

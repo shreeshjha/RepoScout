@@ -210,7 +210,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.cache.ttl_hours, 24);
         assert_eq!(config.cache.max_size_mb, 500);
-        assert_eq!(config.ui.theme, "dark");
+        assert_eq!(config.ui.theme, "Default Dark");
     }
 
     #[test]

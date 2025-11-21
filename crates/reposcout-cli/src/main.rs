@@ -1,6 +1,9 @@
 use clap::Parser;
 use reposcout_cache::{BookmarkEntry, CacheManager};
-use reposcout_core::{providers::{BitbucketProvider, GitHubProvider, GitLabProvider}, CachedSearchEngine};
+use reposcout_core::{
+    providers::{BitbucketProvider, GitHubProvider, GitLabProvider},
+    CachedSearchEngine,
+};
 use std::path::PathBuf;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -359,19 +362,39 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Some(Commands::Show { name }) => {
-            show_repository(&name, cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
+            show_repository(
+                &name,
+                cli.github_token,
+                cli.gitlab_token,
+                cli.bitbucket_username,
+                cli.bitbucket_app_password,
+            )
+            .await?;
         }
         Some(Commands::Cache { action }) => {
             handle_cache_command(action).await?;
         }
         Some(Commands::Bookmark { action }) => {
-            handle_bookmark_command(action, cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
+            handle_bookmark_command(
+                action,
+                cli.github_token,
+                cli.gitlab_token,
+                cli.bitbucket_username,
+                cli.bitbucket_app_password,
+            )
+            .await?;
         }
         Some(Commands::History { action }) => {
             handle_history_command(action).await?;
         }
         Some(Commands::Tui) => {
-            run_tui_mode(cli.github_token, cli.gitlab_token, cli.bitbucket_username, cli.bitbucket_app_password).await?;
+            run_tui_mode(
+                cli.github_token,
+                cli.gitlab_token,
+                cli.bitbucket_username,
+                cli.bitbucket_app_password,
+            )
+            .await?;
         }
         Some(Commands::Trending {
             period,
@@ -429,6 +452,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn search_repositories(
     query: &str,
     limit: usize,
@@ -444,7 +468,13 @@ async fn search_repositories(
     bitbucket_app_password: Option<String>,
 ) -> anyhow::Result<()> {
     // Build GitHub search query with filters
-    let search_query = build_github_query(query, language.clone(), min_stars, max_stars, pushed.clone());
+    let search_query = build_github_query(
+        query,
+        language.clone(),
+        min_stars,
+        max_stars,
+        pushed.clone(),
+    );
     tracing::info!("Searching for: {}", search_query);
 
     // Initialize cache
@@ -455,7 +485,10 @@ async fn search_repositories(
     // Add all providers - search across all platforms
     engine.add_provider(Box::new(GitHubProvider::new(github_token)));
     engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
-    engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username, bitbucket_app_password)));
+    engine.add_provider(Box::new(BitbucketProvider::new(
+        bitbucket_username,
+        bitbucket_app_password,
+    )));
 
     let mut results = engine.search(&search_query).await?;
 
@@ -463,9 +496,17 @@ async fn search_repositories(
     sort_results(&mut results, sort);
 
     // Record search in history (create new cache instance to avoid borrow issues)
-    let filters = build_filters_string(language.as_deref(), min_stars, max_stars, pushed.as_deref(), sort);
+    let filters = build_filters_string(
+        language.as_deref(),
+        min_stars,
+        max_stars,
+        pushed.as_deref(),
+        sort,
+    );
     let history_cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
-    if let Err(e) = history_cache.add_search_history(query, filters.as_deref(), Some(results.len() as i64)) {
+    if let Err(e) =
+        history_cache.add_search_history(query, filters.as_deref(), Some(results.len() as i64))
+    {
         tracing::warn!("Failed to save search history: {}", e);
     }
 
@@ -482,7 +523,11 @@ async fn search_repositories(
         Exporter::export_to_file(&results, &export_path)
             .map_err(|e| anyhow::anyhow!("Export failed: {}", e))?;
 
-        println!("✓ Exported {} repositories to {}", results.len(), export_path);
+        println!(
+            "✓ Exported {} repositories to {}",
+            results.len(),
+            export_path
+        );
         return Ok(());
     }
 
@@ -501,7 +546,8 @@ async fn search_repositories(
             String::new()
         };
 
-        println!("   ⭐ {} | 🍴 {} | {}{}",
+        println!(
+            "   ⭐ {} | 🍴 {} | {}{}",
             repo.stars,
             repo.forks,
             repo.language.as_deref().unwrap_or("Unknown"),
@@ -513,7 +559,13 @@ async fn search_repositories(
     Ok(())
 }
 
-async fn show_repository(full_name: &str, github_token: Option<String>, gitlab_token: Option<String>, bitbucket_username: Option<String>, bitbucket_app_password: Option<String>) -> anyhow::Result<()> {
+async fn show_repository(
+    full_name: &str,
+    github_token: Option<String>,
+    gitlab_token: Option<String>,
+    bitbucket_username: Option<String>,
+    bitbucket_app_password: Option<String>,
+) -> anyhow::Result<()> {
     // Parse owner/repo format
     let parts: Vec<&str> = full_name.split('/').collect();
     if parts.len() != 2 {
@@ -531,7 +583,10 @@ async fn show_repository(full_name: &str, github_token: Option<String>, gitlab_t
     // Add all providers - will try all platforms
     engine.add_provider(Box::new(GitHubProvider::new(github_token)));
     engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
-    engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username, bitbucket_app_password)));
+    engine.add_provider(Box::new(BitbucketProvider::new(
+        bitbucket_username,
+        bitbucket_app_password,
+    )));
 
     let repository = engine.get_repository(owner, repo).await?;
 
@@ -544,13 +599,25 @@ async fn show_repository(full_name: &str, github_token: Option<String>, gitlab_t
     }
 
     println!("Platform:      {}", repository.platform);
-    println!("Language:      {}", repository.language.as_deref().unwrap_or("Unknown"));
+    println!(
+        "Language:      {}",
+        repository.language.as_deref().unwrap_or("Unknown")
+    );
     println!("Stars:         ⭐ {}", repository.stars);
     println!("Forks:         🍴 {}", repository.forks);
     println!("Open Issues:   {}", repository.open_issues);
-    println!("License:       {}", repository.license.as_deref().unwrap_or("None"));
-    println!("Created:       {}", repository.created_at.format("%Y-%m-%d"));
-    println!("Last Updated:  {}", repository.updated_at.format("%Y-%m-%d"));
+    println!(
+        "License:       {}",
+        repository.license.as_deref().unwrap_or("None")
+    );
+    println!(
+        "Created:       {}",
+        repository.created_at.format("%Y-%m-%d")
+    );
+    println!(
+        "Last Updated:  {}",
+        repository.updated_at.format("%Y-%m-%d")
+    );
     println!("Last Pushed:   {}", repository.pushed_at.format("%Y-%m-%d"));
 
     if !repository.topics.is_empty() {
@@ -583,7 +650,10 @@ async fn handle_cache_command(action: CacheAction) -> anyhow::Result<()> {
             println!("\nQuery Cache:");
             println!("  Cached queries:  {}", stats.query_cache_entries);
             println!("  Expired queries: {}", stats.query_cache_expired);
-            println!("  Valid queries:   {}", stats.query_cache_entries - stats.query_cache_expired);
+            println!(
+                "  Valid queries:   {}",
+                stats.query_cache_entries - stats.query_cache_expired
+            );
             println!("\nBookmarks:");
             println!("  Total bookmarks: {}", stats.bookmarks_count);
             println!("\nStorage:");
@@ -598,14 +668,23 @@ async fn handle_cache_command(action: CacheAction) -> anyhow::Result<()> {
         CacheAction::Cleanup => {
             let deleted_repos = cache.cleanup_expired()?;
             let deleted_queries = cache.cleanup_expired_query_cache()?;
-            println!("✅ Cleaned up {} expired repository entries and {} expired query cache entries", deleted_repos, deleted_queries);
+            println!(
+                "✅ Cleaned up {} expired repository entries and {} expired query cache entries",
+                deleted_repos, deleted_queries
+            );
         }
     }
 
     Ok(())
 }
 
-async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<String>, gitlab_token: Option<String>, bitbucket_username: Option<String>, bitbucket_app_password: Option<String>) -> anyhow::Result<()> {
+async fn handle_bookmark_command(
+    action: BookmarkAction,
+    github_token: Option<String>,
+    gitlab_token: Option<String>,
+    bitbucket_username: Option<String>,
+    bitbucket_app_password: Option<String>,
+) -> anyhow::Result<()> {
     use reposcout_core::models::Repository;
 
     let cache_path = get_cache_path()?;
@@ -626,7 +705,8 @@ async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<St
                 if let Some(desc) = &repo.description {
                     println!("   {}", desc);
                 }
-                println!("   ⭐ {} | 🍴 {} | {}",
+                println!(
+                    "   ⭐ {} | 🍴 {} | {}",
                     repo.stars,
                     repo.forks,
                     repo.language.as_deref().unwrap_or("Unknown")
@@ -648,7 +728,10 @@ async fn handle_bookmark_command(action: BookmarkAction, github_token: Option<St
             let mut engine = CachedSearchEngine::with_cache(cache_manager);
             engine.add_provider(Box::new(GitHubProvider::new(github_token)));
             engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
-            engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username, bitbucket_app_password)));
+            engine.add_provider(Box::new(BitbucketProvider::new(
+                bitbucket_username,
+                bitbucket_app_password,
+            )));
 
             let repository = engine.get_repository(owner, repo_name).await?;
 
@@ -762,7 +845,11 @@ async fn handle_history_command(action: HistoryAction) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            println!("\n🔍 Search History matching '{}' ({}):\n", term, history.len());
+            println!(
+                "\n🔍 Search History matching '{}' ({}):\n",
+                term,
+                history.len()
+            );
 
             for (i, entry) in history.iter().enumerate() {
                 let timestamp = format_timestamp(entry.searched_at);
@@ -833,7 +920,10 @@ fn export_bookmarks_csv(bookmarks: &[BookmarkEntry], output: &str) -> anyhow::Re
     let mut file = std::fs::File::create(output)?;
 
     // Write CSV header
-    writeln!(file, "Platform,Repository,Stars,Forks,Language,Description,URL,Bookmarked At,Tags,Notes")?;
+    writeln!(
+        file,
+        "Platform,Repository,Stars,Forks,Language,Description,URL,Bookmarked At,Tags,Notes"
+    )?;
 
     // Write each bookmark
     for entry in bookmarks {
@@ -935,10 +1025,15 @@ fn sort_results(results: &mut [reposcout_core::models::Repository], sort_by: &st
     }
 }
 
-async fn run_tui_mode(mut github_token: Option<String>, mut gitlab_token: Option<String>, bitbucket_username: Option<String>, bitbucket_app_password: Option<String>) -> anyhow::Result<()> {
-    use reposcout_tui::{App, run_tui};
+async fn run_tui_mode(
+    mut github_token: Option<String>,
+    mut gitlab_token: Option<String>,
+    bitbucket_username: Option<String>,
+    bitbucket_app_password: Option<String>,
+) -> anyhow::Result<()> {
     use reposcout_api::{BitbucketClient, GitHubClient, GitLabClient};
     use reposcout_core::TokenStore;
+    use reposcout_tui::{run_tui, App};
 
     // Load tokens from secure storage if not provided via env/CLI
     if let Ok(store) = TokenStore::load() {
@@ -963,7 +1058,8 @@ async fn run_tui_mode(mut github_token: Option<String>, mut gitlab_token: Option
     // Create API clients for README fetching
     let github_client = GitHubClient::new(github_token.clone());
     let gitlab_client = GitLabClient::new(gitlab_token.clone());
-    let bitbucket_client = BitbucketClient::new(bitbucket_username.clone(), bitbucket_app_password.clone());
+    let bitbucket_client =
+        BitbucketClient::new(bitbucket_username.clone(), bitbucket_app_password.clone());
 
     // Set platform status based on provided credentials
     // GitHub and GitLab are always available (public repos don't need auth)
@@ -973,28 +1069,39 @@ async fn run_tui_mode(mut github_token: Option<String>, mut gitlab_token: Option
     // Create cache manager for bookmarks
     let cache = CacheManager::new(cache_path.to_str().unwrap(), 24)?;
 
-    run_tui(app, move |query| {
-        let github_token_clone = github_token.clone();
-        let gitlab_token_clone = gitlab_token.clone();
-        let bitbucket_username_clone = bitbucket_username.clone();
-        let bitbucket_app_password_clone = bitbucket_app_password.clone();
-        let cache_path_clone = cache_path_str.clone();
+    run_tui(
+        app,
+        move |query| {
+            let github_token_clone = github_token.clone();
+            let gitlab_token_clone = gitlab_token.clone();
+            let bitbucket_username_clone = bitbucket_username.clone();
+            let bitbucket_app_password_clone = bitbucket_app_password.clone();
+            let cache_path_clone = cache_path_str.clone();
 
-        Box::pin(async move {
-            // Use query-specific cache for accurate, fast results
-            // This avoids FTS5 cross-contamination by caching complete result sets per exact query
-            let cache = CacheManager::new(&cache_path_clone, 24)?;
-            let mut engine = CachedSearchEngine::with_cache(cache);
-            // Search across all platforms
-            engine.add_provider(Box::new(GitHubProvider::new(github_token_clone)));
-            engine.add_provider(Box::new(GitLabProvider::new(gitlab_token_clone)));
-            engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username_clone, bitbucket_app_password_clone)));
-            engine.search(query).await.map_err(|e| e.into())
-        })
-    }, github_client, gitlab_client, bitbucket_client, cache)
+            Box::pin(async move {
+                // Use query-specific cache for accurate, fast results
+                // This avoids FTS5 cross-contamination by caching complete result sets per exact query
+                let cache = CacheManager::new(&cache_path_clone, 24)?;
+                let mut engine = CachedSearchEngine::with_cache(cache);
+                // Search across all platforms
+                engine.add_provider(Box::new(GitHubProvider::new(github_token_clone)));
+                engine.add_provider(Box::new(GitLabProvider::new(gitlab_token_clone)));
+                engine.add_provider(Box::new(BitbucketProvider::new(
+                    bitbucket_username_clone,
+                    bitbucket_app_password_clone,
+                )));
+                engine.search(query).await.map_err(|e| e.into())
+            })
+        },
+        github_client,
+        gitlab_client,
+        bitbucket_client,
+        cache,
+    )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn search_code(
     query: &str,
     limit: usize,
@@ -1083,7 +1190,9 @@ async fn search_code(
                 let error_str = e.to_string();
                 if error_str.contains("Authentication required") {
                     eprintln!("❌ GitHub code search requires authentication.");
-                    eprintln!("   Set GITHUB_TOKEN environment variable or use --github-token flag.");
+                    eprintln!(
+                        "   Set GITHUB_TOKEN environment variable or use --github-token flag."
+                    );
                     eprintln!("   Example: export GITHUB_TOKEN=your_token_here\n");
                 } else if error_str.contains("Rate limit") {
                     eprintln!("❌ GitHub API rate limit exceeded.");
@@ -1126,13 +1235,18 @@ async fn search_code(
                         repository_stars: 0,
                     });
                 }
-                tracing::info!("Found {} total results (including GitLab)", all_results.len());
+                tracing::info!(
+                    "Found {} total results (including GitLab)",
+                    all_results.len()
+                );
             }
             Err(e) => {
                 let error_str = e.to_string();
                 if error_str.contains("Authentication required") {
                     eprintln!("❌ GitLab code search requires authentication.");
-                    eprintln!("   Set GITLAB_TOKEN environment variable or use --gitlab-token flag.");
+                    eprintln!(
+                        "   Set GITLAB_TOKEN environment variable or use --gitlab-token flag."
+                    );
                     eprintln!("   Example: export GITLAB_TOKEN=your_token_here\n");
                 } else if error_str.contains("Rate limit") {
                     eprintln!("❌ GitLab API rate limit exceeded.");
@@ -1174,13 +1288,11 @@ async fn search_code(
     println!("\n🔍 Found {} code matches:\n", all_results.len());
 
     for (i, result) in all_results.iter().take(limit).enumerate() {
+        println!("{}. {} ({})", i + 1, result.file_path, result.repository);
         println!(
-            "{}. {} ({})",
-            i + 1,
-            result.file_path,
-            result.repository
+            "   Platform: {} | ⭐ {}",
+            result.platform, result.repository_stars
         );
-        println!("   Platform: {} | ⭐ {}", result.platform, result.repository_stars);
         if let Some(lang) = &result.language {
             println!("   Language: {}", lang);
         }
@@ -1201,6 +1313,7 @@ async fn search_code(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn show_trending(
     period_str: &str,
     language: Option<String>,
@@ -1334,7 +1447,12 @@ async fn handle_notifications(
     let client = reposcout_api::GitHubClient::new(Some(github_token));
 
     match action {
-        NotificationAction::List { all, participating, limit, repo } => {
+        NotificationAction::List {
+            all,
+            participating,
+            limit,
+            repo,
+        } => {
             let notifications = client.get_notifications(all, participating, limit).await?;
 
             // Filter by repo if specified
@@ -1358,10 +1476,19 @@ async fn handle_notifications(
                 let unread_marker = if notif.unread { "🔵" } else { "⚪" };
                 let reason = notif.reason.as_str();
 
-                println!("{}. {} {} - {}", i + 1, unread_marker, notif.subject.title, reason);
+                println!(
+                    "{}. {} {} - {}",
+                    i + 1,
+                    unread_marker,
+                    notif.subject.title,
+                    reason
+                );
                 println!("   Repository: {}", notif.repository.full_name);
                 println!("   Type: {}", notif.subject.subject_type);
-                println!("   Updated: {}", notif.updated_at.format("%Y-%m-%d %H:%M:%S"));
+                println!(
+                    "   Updated: {}",
+                    notif.updated_at.format("%Y-%m-%d %H:%M:%S")
+                );
                 println!("   ID: {}", notif.id);
 
                 if let Some(ref desc) = notif.repository.description {
@@ -1389,6 +1516,7 @@ async fn handle_notifications(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_semantic_search(
     query: &str,
     limit: usize,
@@ -1427,7 +1555,10 @@ async fn handle_semantic_search(
         let mut keyword_engine = reposcout_core::CachedSearchEngine::with_cache(cache);
         keyword_engine.add_provider(Box::new(GitHubProvider::new(github_token)));
         keyword_engine.add_provider(Box::new(GitLabProvider::new(gitlab_token)));
-        keyword_engine.add_provider(Box::new(BitbucketProvider::new(bitbucket_username, bitbucket_app_password)));
+        keyword_engine.add_provider(Box::new(BitbucketProvider::new(
+            bitbucket_username,
+            bitbucket_app_password,
+        )));
 
         let keyword_results = keyword_engine.search(query).await?;
 
@@ -1464,11 +1595,15 @@ async fn handle_semantic_search(
         return Ok(());
     }
 
-    println!("\nFound {} repositories (semantic search):\n", results.len());
+    println!(
+        "\nFound {} repositories (semantic search):\n",
+        results.len()
+    );
 
     for (i, result) in results.iter().enumerate() {
         let repo = &result.repository;
-        println!("{}. {} ({}) [similarity: {:.2}]",
+        println!(
+            "{}. {} ({}) [similarity: {:.2}]",
             i + 1,
             repo.full_name,
             repo.platform,
@@ -1481,15 +1616,15 @@ async fn handle_semantic_search(
 
         if hybrid {
             if let Some(keyword_score) = result.keyword_score {
-                println!("   Hybrid score: {:.2} (semantic: {:.2}, keyword: {:.2})",
-                    result.hybrid_score,
-                    result.semantic_score,
-                    keyword_score
+                println!(
+                    "   Hybrid score: {:.2} (semantic: {:.2}, keyword: {:.2})",
+                    result.hybrid_score, result.semantic_score, keyword_score
                 );
             }
         }
 
-        println!("   ⭐ {} stars | 🍴 {} forks | 📝 {}",
+        println!(
+            "   ⭐ {} stars | 🍴 {} forks | 📝 {}",
             repo.stars,
             repo.forks,
             repo.language.as_deref().unwrap_or("Unknown")
@@ -1521,11 +1656,20 @@ async fn handle_semantic_index(action: &SemanticIndexAction) -> anyhow::Result<(
             println!("\nSemantic Index Statistics:");
             println!("─────────────────────────────");
             println!("Total repositories: {}", stats.total_repositories);
-            println!("Index size: {:.2} MB", stats.index_size_bytes as f64 / 1_048_576.0);
+            println!(
+                "Index size: {:.2} MB",
+                stats.index_size_bytes as f64 / 1_048_576.0
+            );
             println!("Model: {}", stats.model_name);
             println!("Vector dimension: {}", stats.dimension);
-            println!("Last updated: {}", stats.last_updated.format("%Y-%m-%d %H:%M:%S"));
-            println!("Created at: {}", stats.created_at.format("%Y-%m-%d %H:%M:%S"));
+            println!(
+                "Last updated: {}",
+                stats.last_updated.format("%Y-%m-%d %H:%M:%S")
+            );
+            println!(
+                "Created at: {}",
+                stats.created_at.format("%Y-%m-%d %H:%M:%S")
+            );
         }
         SemanticIndexAction::Rebuild { force } => {
             if !force {

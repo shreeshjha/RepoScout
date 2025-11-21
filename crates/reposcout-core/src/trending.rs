@@ -134,7 +134,9 @@ impl<'a> TrendingFinder<'a> {
             let velocity_a = a.stars as f64 / age_a;
             let velocity_b = b.stars as f64 / age_b;
 
-            velocity_b.partial_cmp(&velocity_a).unwrap_or(std::cmp::Ordering::Equal)
+            velocity_b
+                .partial_cmp(&velocity_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         Ok(repos)

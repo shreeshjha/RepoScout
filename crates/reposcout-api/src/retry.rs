@@ -16,9 +16,9 @@ impl Default for RetryConfig {
     fn default() -> Self {
         Self {
             max_retries: 3,
-            initial_delay_ms: 1000,     // Start with 1 second
-            max_delay_ms: 30000,         // Max 30 seconds
-            backoff_multiplier: 2.0,     // Double each time
+            initial_delay_ms: 1000,  // Start with 1 second
+            max_delay_ms: 30000,     // Max 30 seconds
+            backoff_multiplier: 2.0, // Double each time
         }
     }
 }
@@ -28,10 +28,7 @@ impl Default for RetryConfig {
 /// Uses exponential backoff: if a request fails, we wait progressively
 /// longer before trying again. This is polite to APIs and helps when
 /// there are temporary network issues.
-pub async fn with_retry<F, Fut, T, E>(
-    config: &RetryConfig,
-    mut operation: F,
-) -> Result<T, E>
+pub async fn with_retry<F, Fut, T, E>(config: &RetryConfig, mut operation: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
@@ -66,12 +63,17 @@ where
                 attempt += 1;
 
                 if attempt > config.max_retries {
-                    warn!("Request failed after {} attempts: {}", config.max_retries, err);
+                    warn!(
+                        "Request failed after {} attempts: {}",
+                        config.max_retries, err
+                    );
                     return Err(err);
                 }
 
-                warn!("Request failed (attempt {}/{}): {}. Retrying in {}ms...",
-                    attempt, config.max_retries, err, delay_ms);
+                warn!(
+                    "Request failed (attempt {}/{}): {}. Retrying in {}ms...",
+                    attempt, config.max_retries, err, delay_ms
+                );
 
                 sleep(Duration::from_millis(delay_ms)).await;
 
@@ -166,9 +168,13 @@ mod tests {
 
     #[test]
     fn test_retryable_status_codes() {
-        assert!(is_retryable_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_status(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
         assert!(is_retryable_status(reqwest::StatusCode::BAD_GATEWAY));
-        assert!(is_retryable_status(reqwest::StatusCode::SERVICE_UNAVAILABLE));
+        assert!(is_retryable_status(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        ));
         assert!(is_retryable_status(reqwest::StatusCode::TOO_MANY_REQUESTS));
 
         assert!(!is_retryable_status(reqwest::StatusCode::NOT_FOUND));

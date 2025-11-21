@@ -82,9 +82,19 @@ pub fn render_keybindings_help(frame: &mut Frame, app: &App, area: Rect) {
 
     let footer = Paragraph::new(Line::from(vec![
         Span::styled("Press ", Style::default().fg(muted_color)),
-        Span::styled("? ", Style::default().fg(accent_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "? ",
+            Style::default()
+                .fg(accent_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("or ", Style::default().fg(muted_color)),
-        Span::styled("ESC ", Style::default().fg(accent_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "ESC ",
+            Style::default()
+                .fg(accent_color)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("to close", Style::default().fg(muted_color)),
     ]))
     .alignment(Alignment::Center)
@@ -104,21 +114,22 @@ fn get_keybindings_content(
 
     // Helper to create a section header
     let section = |title: &str| -> Line<'static> {
-        Line::from(vec![
-            Span::styled(
-                format!(" {} ", title),
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(primary)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])
+        Line::from(vec![Span::styled(
+            format!(" {} ", title),
+            Style::default()
+                .fg(Color::Black)
+                .bg(primary)
+                .add_modifier(Modifier::BOLD),
+        )])
     };
 
     // Helper to create a keybinding line
     let key = |k: &str, desc: &str| -> Line<'static> {
         Line::from(vec![
-            Span::styled(format!("  {:12}", k), Style::default().fg(accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("  {:12}", k),
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(desc.to_string(), Style::default().fg(fg)),
         ])
     };
@@ -245,12 +256,10 @@ fn get_keybindings_content(
     lines.push(Line::from(""));
 
     // Footer note
-    lines.push(Line::from(vec![
-        Span::styled(
-            "  Tip: Context-sensitive help is shown in the status bar at the bottom",
-            Style::default().fg(muted).add_modifier(Modifier::ITALIC),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        "  Tip: Context-sensitive help is shown in the status bar at the bottom",
+        Style::default().fg(muted).add_modifier(Modifier::ITALIC),
+    )]));
     lines.push(Line::from(""));
 
     lines

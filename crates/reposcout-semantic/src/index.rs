@@ -292,8 +292,8 @@ impl VectorIndex {
             return Err(SemanticError::CorruptedIndex);
         }
         let metadata_data = std::fs::read(&metadata_file)?;
-        let metadata: HashMap<String, EmbeddingEntry> =
-            rmp_serde::from_slice(&metadata_data).map_err(|e| {
+        let metadata: HashMap<String, EmbeddingEntry> = rmp_serde::from_slice(&metadata_data)
+            .map_err(|e| {
                 SemanticError::SerializationError(format!("Failed to deserialize metadata: {}", e))
             })?;
 
@@ -332,7 +332,10 @@ impl VectorIndex {
             IndexStats::new("unknown".to_string(), dimension)
         };
 
-        info!("Semantic index loaded successfully: {} repositories", metadata.len());
+        info!(
+            "Semantic index loaded successfully: {} repositories",
+            metadata.len()
+        );
 
         Ok(Self {
             index,
@@ -375,8 +378,9 @@ impl VectorIndex {
                 expansion_search: 64,
                 multi: false,
             };
-            USearchIndex::new(&options)
-                .map_err(|e| SemanticError::IndexError(format!("Failed to recreate index: {}", e)))?
+            USearchIndex::new(&options).map_err(|e| {
+                SemanticError::IndexError(format!("Failed to recreate index: {}", e))
+            })?
         };
 
         self.id_to_repo.clear();

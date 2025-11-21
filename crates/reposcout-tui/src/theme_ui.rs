@@ -42,18 +42,19 @@ pub fn render_theme_selector(frame: &mut Frame, app: &App, area: Rect) {
             );
 
             // Create color preview boxes
-            let color_preview = format!(
-                "  Colors: {}",
-                create_color_boxes(&theme.colors)
-            );
+            let color_preview = format!("  Colors: {}", create_color_boxes(&theme.colors));
 
             ListItem::new(vec![
-                Line::from(vec![
-                    Span::styled(preview, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                ]),
-                Line::from(vec![
-                    Span::styled(color_preview, Style::default().fg(Color::Gray)),
-                ]),
+                Line::from(vec![Span::styled(
+                    preview,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![Span::styled(
+                    color_preview,
+                    Style::default().fg(Color::Gray),
+                )]),
                 Line::from(""),
             ])
         })
@@ -69,7 +70,7 @@ pub fn render_theme_selector(frame: &mut Frame, app: &App, area: Rect) {
         .highlight_style(
             Style::default()
                 .bg(Color::Rgb(68, 71, 90))
-                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▶ ");
 
@@ -109,15 +110,36 @@ fn render_theme_preview(frame: &mut Frame, theme: &reposcout_core::Theme, area: 
     let lines = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Success ", Style::default().bg(to_ratatui_color(&colors.success))),
-            Span::styled(" Warning ", Style::default().bg(to_ratatui_color(&colors.warning))),
-            Span::styled(" Error ", Style::default().bg(to_ratatui_color(&colors.error))),
-            Span::styled(" Info ", Style::default().bg(to_ratatui_color(&colors.info))),
+            Span::styled(
+                "  Success ",
+                Style::default().bg(to_ratatui_color(&colors.success)),
+            ),
+            Span::styled(
+                " Warning ",
+                Style::default().bg(to_ratatui_color(&colors.warning)),
+            ),
+            Span::styled(
+                " Error ",
+                Style::default().bg(to_ratatui_color(&colors.error)),
+            ),
+            Span::styled(
+                " Info ",
+                Style::default().bg(to_ratatui_color(&colors.info)),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("  Primary ", Style::default().bg(to_ratatui_color(&colors.primary))),
-            Span::styled(" Accent ", Style::default().bg(to_ratatui_color(&colors.accent))),
-            Span::styled(" Selected ", Style::default().bg(to_ratatui_color(&colors.selected))),
+            Span::styled(
+                "  Primary ",
+                Style::default().bg(to_ratatui_color(&colors.primary)),
+            ),
+            Span::styled(
+                " Accent ",
+                Style::default().bg(to_ratatui_color(&colors.accent)),
+            ),
+            Span::styled(
+                " Selected ",
+                Style::default().bg(to_ratatui_color(&colors.selected)),
+            ),
         ]),
     ];
 
@@ -131,9 +153,7 @@ fn render_theme_preview(frame: &mut Frame, theme: &reposcout_core::Theme, area: 
 /// Create color preview boxes as a string
 fn create_color_boxes(_colors: &reposcout_core::ThemeColors) -> String {
     // Simple text representation of colors
-    format!(
-        "■ Primary ■ Success ■ Warning ■ Error"
-    )
+    "■ Primary ■ Success ■ Warning ■ Error".to_string()
 }
 
 /// Convert our Color to ratatui Color

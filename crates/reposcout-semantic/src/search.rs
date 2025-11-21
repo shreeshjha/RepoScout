@@ -57,11 +57,7 @@ impl SemanticSearchEngine {
     }
 
     /// Index a single repository
-    pub async fn index_repository(
-        &self,
-        repo: &Repository,
-        readme: Option<&str>,
-    ) -> Result<()> {
+    pub async fn index_repository(&self, repo: &Repository, readme: Option<&str>) -> Result<()> {
         debug!("Indexing repository: {}", repo.full_name);
 
         // Generate embedding
@@ -185,7 +181,10 @@ impl SemanticSearchEngine {
             .collect();
 
         if !repos_to_index.is_empty() {
-            info!("Indexing {} keyword results for semantic search", repos_to_index.len());
+            info!(
+                "Indexing {} keyword results for semantic search",
+                repos_to_index.len()
+            );
             self.index_repositories(repos_to_index).await?;
         }
 
@@ -195,7 +194,10 @@ impl SemanticSearchEngine {
         // Create a map of repo_id to semantic score
         let mut semantic_map: HashMap<String, f32> = HashMap::new();
         for result in &semantic_results {
-            let repo_id = format!("{}:{}", result.repository.platform, result.repository.full_name);
+            let repo_id = format!(
+                "{}:{}",
+                result.repository.platform, result.repository.full_name
+            );
             semantic_map.insert(repo_id, result.semantic_score);
         }
 

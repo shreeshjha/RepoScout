@@ -114,7 +114,11 @@ impl BitbucketClient {
     }
 
     /// Get detailed info about a specific repository
-    pub async fn get_repository(&self, workspace: &str, repo_slug: &str) -> Result<BitbucketRepository> {
+    pub async fn get_repository(
+        &self,
+        workspace: &str,
+        repo_slug: &str,
+    ) -> Result<BitbucketRepository> {
         let url = format!("{}/repositories/{}/{}", self.base_url, workspace, repo_slug);
         let auth_header = self.basic_auth_header();
         let full_name = format!("{}/{}", workspace, repo_slug);
@@ -161,7 +165,13 @@ impl BitbucketClient {
     /// Get repository README content
     pub async fn get_readme(&self, workspace: &str, repo_slug: &str) -> Result<String> {
         // Try common README file names
-        for readme_name in &["README.md", "README.MD", "readme.md", "README", "README.rst"] {
+        for readme_name in &[
+            "README.md",
+            "README.MD",
+            "readme.md",
+            "README",
+            "README.rst",
+        ] {
             let url = format!(
                 "{}/repositories/{}/{}/src/HEAD/{}",
                 self.base_url, workspace, repo_slug, readme_name
@@ -178,7 +188,10 @@ impl BitbucketClient {
                 let response = request.send().await?;
 
                 if response.status() == 404 {
-                    return Err(BitbucketError::NotFound(format!("{}/{}", workspace, repo_slug)));
+                    return Err(BitbucketError::NotFound(format!(
+                        "{}/{}",
+                        workspace, repo_slug
+                    )));
                 }
 
                 if response.status() == 401 {
@@ -340,11 +353,10 @@ impl BitbucketClient {
 
 /// Bitbucket API repository search response
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct SearchResponse {
-    #[allow(dead_code)]
     values: Vec<BitbucketRepository>,
     #[serde(default)]
-    #[allow(dead_code)]
     next: Option<String>,
 }
 
@@ -485,10 +497,8 @@ mod tests {
 
     #[test]
     fn test_basic_auth_header() {
-        let client = BitbucketClient::new(
-            Some("testuser".to_string()),
-            Some("testpass".to_string()),
-        );
+        let client =
+            BitbucketClient::new(Some("testuser".to_string()), Some("testpass".to_string()));
         let auth_header = client.basic_auth_header();
         assert!(auth_header.is_some());
         assert!(auth_header.unwrap().starts_with("Basic "));

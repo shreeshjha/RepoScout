@@ -152,7 +152,10 @@ mod tests {
 
     #[test]
     fn test_truncate_to_tokens() {
-        let text = (0..1000).map(|i| format!("word{}", i)).collect::<Vec<_>>().join(" ");
+        let text = (0..1000)
+            .map(|i| format!("word{}", i))
+            .collect::<Vec<_>>()
+            .join(" ");
         let truncated = truncate_to_tokens(&text, 100);
         let word_count = truncated.split_whitespace().count();
         assert_eq!(word_count, 100);

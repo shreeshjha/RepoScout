@@ -136,10 +136,12 @@ impl CacheManager {
 
         // Parse JSON to extract fields for FTS5
         let value: serde_json::Value = serde_json::from_str(&json)?;
-        let description = value.get("description")
+        let description = value
+            .get("description")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let topics = value.get("topics")
+        let topics = value
+            .get("topics")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
@@ -198,7 +200,11 @@ impl CacheManager {
     }
 
     /// Search repositories using FTS5
-    pub fn search<T: for<'de> Deserialize<'de>>(&self, query: &str, limit: usize) -> Result<Vec<T>> {
+    pub fn search<T: for<'de> Deserialize<'de>>(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<T>> {
         let mut stmt = self.conn.prepare(
             "SELECT r.data FROM repositories r
              INNER JOIN repositories_fts fts ON r.id = fts.rowid
@@ -221,9 +227,9 @@ impl CacheManager {
 
     /// Get all cached repositories (useful for offline mode)
     pub fn get_all<T: for<'de> Deserialize<'de>>(&self, limit: usize) -> Result<Vec<T>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT data FROM repositories ORDER BY cached_at DESC LIMIT ?1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT data FROM repositories ORDER BY cached_at DESC LIMIT ?1")?;
 
         let results = stmt
             .query_map(params![limit], |row| {
@@ -281,9 +287,9 @@ impl CacheManager {
         )?;
 
         // Query cache stats
-        let query_total: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM query_cache", [], |row| row.get(0))?;
+        let query_total: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM query_cache", [], |row| row.get(0))?;
 
         let query_expired: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM query_cache WHERE cached_at < ?1",
@@ -363,9 +369,9 @@ impl CacheManager {
 
     /// Get all bookmarks
     pub fn get_bookmarks<T: for<'de> Deserialize<'de>>(&self) -> Result<Vec<T>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT data FROM bookmarks ORDER BY bookmarked_at DESC",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT data FROM bookmarks ORDER BY bookmarked_at DESC")?;
 
         let results = stmt
             .query_map([], |row| {
@@ -518,10 +524,8 @@ impl CacheManager {
 
     /// Delete a specific search history entry
     pub fn delete_search_history(&self, id: i64) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM search_history WHERE id = ?1",
-            params![id],
-        )?;
+        self.conn
+            .execute("DELETE FROM search_history WHERE id = ?1", params![id])?;
         Ok(())
     }
 

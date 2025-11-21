@@ -36,10 +36,7 @@ pub struct Exporter;
 
 impl Exporter {
     /// Export repositories to a file with automatic format detection
-    pub fn export_to_file<P: AsRef<Path>>(
-        repos: &[Repository],
-        path: P,
-    ) -> Result<()> {
+    pub fn export_to_file<P: AsRef<Path>>(repos: &[Repository], path: P) -> Result<()> {
         let path = path.as_ref();
 
         // Detect format from extension
@@ -47,9 +44,12 @@ impl Exporter {
             .extension()
             .and_then(|e| e.to_str())
             .and_then(ExportFormat::from_extension)
-            .ok_or_else(|| Error::ConfigError(
-                "Could not determine export format from extension. Use .json, .csv, or .md".to_string()
-            ))?;
+            .ok_or_else(|| {
+                Error::ConfigError(
+                    "Could not determine export format from extension. Use .json, .csv, or .md"
+                        .to_string(),
+                )
+            })?;
 
         Self::export_to_file_with_format(repos, path, format)
     }
@@ -88,14 +88,22 @@ impl Exporter {
         // CSV Header
         output.push_str(
             "Platform,Name,Description,Stars,Forks,Watchers,Open Issues,Language,License,\
-             Created At,Updated At,Pushed At,Health Score,Health Status,Maintenance Level,URL\n"
+             Created At,Updated At,Pushed At,Health Score,Health Status,Maintenance Level,URL\n",
         );
 
         // CSV Rows
         for repo in repos {
-            let health_score = repo.health.as_ref().map(|h| h.score.to_string()).unwrap_or_default();
+            let health_score = repo
+                .health
+                .as_ref()
+                .map(|h| h.score.to_string())
+                .unwrap_or_default();
             let health_status = repo.health.as_ref().map(|h| h.status.label()).unwrap_or("");
-            let maintenance = repo.health.as_ref().map(|h| h.maintenance.label()).unwrap_or("");
+            let maintenance = repo
+                .health
+                .as_ref()
+                .map(|h| h.maintenance.label())
+                .unwrap_or("");
 
             output.push_str(&format!(
                 "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
@@ -150,7 +158,11 @@ impl Exporter {
                     health.status.label(),
                     health.score
                 ));
-                output.push_str(&format!("**Maintenance:** {} {}\n\n", health.maintenance.emoji(), health.maintenance.label()));
+                output.push_str(&format!(
+                    "**Maintenance:** {} {}\n\n",
+                    health.maintenance.emoji(),
+                    health.maintenance.label()
+                ));
             } else {
                 output.push('\n');
             }
@@ -163,10 +175,22 @@ impl Exporter {
             // Stats table
             output.push_str("| Metric | Value |\n");
             output.push_str("|--------|-------|\n");
-            output.push_str(&format!("| ⭐ Stars | {} |\n", Self::format_number(repo.stars)));
-            output.push_str(&format!("| 🍴 Forks | {} |\n", Self::format_number(repo.forks)));
-            output.push_str(&format!("| 👀 Watchers | {} |\n", Self::format_number(repo.watchers)));
-            output.push_str(&format!("| 🐛 Open Issues | {} |\n", Self::format_number(repo.open_issues)));
+            output.push_str(&format!(
+                "| ⭐ Stars | {} |\n",
+                Self::format_number(repo.stars)
+            ));
+            output.push_str(&format!(
+                "| 🍴 Forks | {} |\n",
+                Self::format_number(repo.forks)
+            ));
+            output.push_str(&format!(
+                "| 👀 Watchers | {} |\n",
+                Self::format_number(repo.watchers)
+            ));
+            output.push_str(&format!(
+                "| 🐛 Open Issues | {} |\n",
+                Self::format_number(repo.open_issues)
+            ));
 
             if let Some(lang) = &repo.language {
                 output.push_str(&format!("| 💻 Language | {} |\n", lang));
@@ -176,9 +200,18 @@ impl Exporter {
                 output.push_str(&format!("| 📜 License | {} |\n", license));
             }
 
-            output.push_str(&format!("| 📅 Created | {} |\n", repo.created_at.format("%Y-%m-%d")));
-            output.push_str(&format!("| 🔄 Updated | {} |\n", repo.updated_at.format("%Y-%m-%d")));
-            output.push_str(&format!("| 📌 Pushed | {} |\n", repo.pushed_at.format("%Y-%m-%d")));
+            output.push_str(&format!(
+                "| 📅 Created | {} |\n",
+                repo.created_at.format("%Y-%m-%d")
+            ));
+            output.push_str(&format!(
+                "| 🔄 Updated | {} |\n",
+                repo.updated_at.format("%Y-%m-%d")
+            ));
+            output.push_str(&format!(
+                "| 📌 Pushed | {} |\n",
+                repo.pushed_at.format("%Y-%m-%d")
+            ));
 
             // Topics
             if !repo.topics.is_empty() {
@@ -197,11 +230,26 @@ impl Exporter {
                 output.push_str("\n### Health Metrics\n\n");
                 output.push_str("| Score Component | Value |\n");
                 output.push_str("|-----------------|-------|\n");
-                output.push_str(&format!("| Activity | {}/30 |\n", health.metrics.activity_score));
-                output.push_str(&format!("| Community | {}/25 |\n", health.metrics.community_score));
-                output.push_str(&format!("| Responsiveness | {}/20 |\n", health.metrics.responsiveness_score));
-                output.push_str(&format!("| Maturity | {}/15 |\n", health.metrics.maturity_score));
-                output.push_str(&format!("| Documentation | {}/10 |\n", health.metrics.documentation_score));
+                output.push_str(&format!(
+                    "| Activity | {}/30 |\n",
+                    health.metrics.activity_score
+                ));
+                output.push_str(&format!(
+                    "| Community | {}/25 |\n",
+                    health.metrics.community_score
+                ));
+                output.push_str(&format!(
+                    "| Responsiveness | {}/20 |\n",
+                    health.metrics.responsiveness_score
+                ));
+                output.push_str(&format!(
+                    "| Maturity | {}/15 |\n",
+                    health.metrics.maturity_score
+                ));
+                output.push_str(&format!(
+                    "| Documentation | {}/10 |\n",
+                    health.metrics.documentation_score
+                ));
             }
 
             output.push_str("\n---\n\n");
@@ -213,13 +261,21 @@ impl Exporter {
 
             let total_stars: u32 = repos.iter().map(|r| r.stars).sum();
             let total_forks: u32 = repos.iter().map(|r| r.forks).sum();
-            let avg_health: f64 = repos.iter()
+            let avg_health: f64 = repos
+                .iter()
                 .filter_map(|r| r.health.as_ref())
                 .map(|h| h.score as f64)
-                .sum::<f64>() / repos.len() as f64;
+                .sum::<f64>()
+                / repos.len() as f64;
 
-            output.push_str(&format!("- Total Stars: {}\n", Self::format_number(total_stars)));
-            output.push_str(&format!("- Total Forks: {}\n", Self::format_number(total_forks)));
+            output.push_str(&format!(
+                "- Total Stars: {}\n",
+                Self::format_number(total_stars)
+            ));
+            output.push_str(&format!(
+                "- Total Forks: {}\n",
+                Self::format_number(total_forks)
+            ));
             if avg_health > 0.0 {
                 output.push_str(&format!("- Average Health Score: {:.1}/100\n", avg_health));
             }
@@ -227,7 +283,9 @@ impl Exporter {
             // Platform distribution
             let mut platform_counts = std::collections::HashMap::new();
             for repo in repos {
-                *platform_counts.entry(repo.platform.to_string()).or_insert(0) += 1;
+                *platform_counts
+                    .entry(repo.platform.to_string())
+                    .or_insert(0) += 1;
             }
 
             output.push_str("\n### Platform Distribution\n\n");
@@ -292,11 +350,23 @@ mod tests {
 
     #[test]
     fn test_export_format_detection() {
-        assert_eq!(ExportFormat::from_extension("json"), Some(ExportFormat::Json));
-        assert_eq!(ExportFormat::from_extension("JSON"), Some(ExportFormat::Json));
+        assert_eq!(
+            ExportFormat::from_extension("json"),
+            Some(ExportFormat::Json)
+        );
+        assert_eq!(
+            ExportFormat::from_extension("JSON"),
+            Some(ExportFormat::Json)
+        );
         assert_eq!(ExportFormat::from_extension("csv"), Some(ExportFormat::Csv));
-        assert_eq!(ExportFormat::from_extension("md"), Some(ExportFormat::Markdown));
-        assert_eq!(ExportFormat::from_extension("markdown"), Some(ExportFormat::Markdown));
+        assert_eq!(
+            ExportFormat::from_extension("md"),
+            Some(ExportFormat::Markdown)
+        );
+        assert_eq!(
+            ExportFormat::from_extension("markdown"),
+            Some(ExportFormat::Markdown)
+        );
         assert_eq!(ExportFormat::from_extension("txt"), None);
     }
 

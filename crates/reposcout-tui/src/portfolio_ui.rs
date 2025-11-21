@@ -13,13 +13,15 @@ pub fn render_portfolio_list(frame: &mut Frame, app: &App, area: Rect) {
 
     let items: Vec<ListItem> = if portfolios.is_empty() {
         vec![
-            ListItem::new(Line::from(vec![
-                Span::styled("No portfolios yet", Style::default().fg(Color::Gray)),
-            ])),
+            ListItem::new(Line::from(vec![Span::styled(
+                "No portfolios yet",
+                Style::default().fg(Color::Gray),
+            )])),
             ListItem::new(Line::from("")),
-            ListItem::new(Line::from(vec![
-                Span::styled("Press 'N' to create your first portfolio!", Style::default().fg(Color::Yellow)),
-            ])),
+            ListItem::new(Line::from(vec![Span::styled(
+                "Press 'N' to create your first portfolio!",
+                Style::default().fg(Color::Yellow),
+            )])),
         ]
     } else {
         portfolios
@@ -44,7 +46,10 @@ pub fn render_portfolio_list(frame: &mut Frame, app: &App, area: Rect) {
                         Span::styled(name, style.fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                     ]),
                     Line::from(vec![
-                        Span::styled(format!("  {} repos  •  ", repo_count), style.fg(Color::Gray)),
+                        Span::styled(
+                            format!("  {} repos  •  ", repo_count),
+                            style.fg(Color::Gray),
+                        ),
                         Span::styled("⭐", style.fg(Color::Yellow)),
                         Span::styled(format!(" {}", total_stars), style.fg(Color::Yellow)),
                     ]),
@@ -76,22 +81,36 @@ pub fn render_portfolio_detail(frame: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(vec![
             Span::styled(portfolio.icon.as_emoji(), Style::default()),
             Span::styled(" ", Style::default()),
-            Span::styled(&portfolio.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                &portfolio.name,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
         lines.push(Line::from(""));
 
         if let Some(desc) = &portfolio.description {
-            lines.push(Line::from(Span::styled(desc, Style::default().fg(Color::Gray))));
+            lines.push(Line::from(Span::styled(
+                desc,
+                Style::default().fg(Color::Gray),
+            )));
             lines.push(Line::from(""));
         }
 
         // Stats
         lines.push(Line::from(vec![
             Span::styled("Repositories: ", Style::default().fg(Color::Gray)),
-            Span::styled(portfolio.repo_count().to_string(), Style::default().fg(Color::Green)),
+            Span::styled(
+                portfolio.repo_count().to_string(),
+                Style::default().fg(Color::Green),
+            ),
             Span::styled("  •  ", Style::default().fg(Color::Gray)),
             Span::styled("Total Stars: ", Style::default().fg(Color::Gray)),
-            Span::styled(portfolio.total_stars().to_string(), Style::default().fg(Color::Yellow)),
+            Span::styled(
+                portfolio.total_stars().to_string(),
+                Style::default().fg(Color::Yellow),
+            ),
         ]));
         lines.push(Line::from(""));
         lines.push(Line::from("─".repeat(40)));
@@ -111,7 +130,9 @@ pub fn render_portfolio_detail(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             lines.push(Line::from(Span::styled(
                 "📚 Repositories:",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(""));
 
@@ -145,7 +166,12 @@ pub fn render_portfolio_detail(frame: &mut Frame, app: &App, area: Rect) {
                 if let Some(notes) = &watched.notes {
                     lines.push(Line::from(vec![
                         Span::styled("    ", Style::default()),
-                        Span::styled(notes, Style::default().fg(Color::Gray).add_modifier(Modifier::ITALIC)),
+                        Span::styled(
+                            notes,
+                            Style::default()
+                                .fg(Color::Gray)
+                                .add_modifier(Modifier::ITALIC),
+                        ),
                     ]));
                 }
 

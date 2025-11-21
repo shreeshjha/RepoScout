@@ -74,16 +74,16 @@ impl PortfolioColor {
 /// Icon for portfolio
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PortfolioIcon {
-    Work,       // 💼
-    Learning,   // 📚
-    Personal,   // 👤
-    Stars,      // ⭐
-    Bookmark,   // 🔖
-    Code,       // 💻
-    Tools,      // 🔧
-    Rocket,     // 🚀
-    Heart,      // ❤️
-    Fire,       // 🔥
+    Work,     // 💼
+    Learning, // 📚
+    Personal, // 👤
+    Stars,    // ⭐
+    Bookmark, // 🔖
+    Code,     // 💻
+    Tools,    // 🔧
+    Rocket,   // 🚀
+    Heart,    // ❤️
+    Fire,     // 🔥
 }
 
 impl PortfolioIcon {
@@ -299,7 +299,11 @@ impl PortfolioManager {
     }
 
     /// Check for updates in a watched repository
-    pub fn check_for_updates(&mut self, portfolio_id: &str, updated_repo: &Repository) -> Vec<RepoUpdate> {
+    pub fn check_for_updates(
+        &mut self,
+        portfolio_id: &str,
+        updated_repo: &Repository,
+    ) -> Vec<RepoUpdate> {
         let mut updates = Vec::new();
 
         if let Some(portfolio) = self.portfolios.get_mut(portfolio_id) {

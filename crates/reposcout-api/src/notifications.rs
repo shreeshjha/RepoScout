@@ -49,17 +49,17 @@ pub struct NotificationSubject {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationReason {
-    Assign,           // Assigned to you
-    Author,           // You're the author
-    Comment,          // Commented on
-    Invitation,       // Invited to contribute
-    Manual,           // Manually subscribed
-    Mention,          // Mentioned you
-    ReviewRequested,  // Review requested
-    SecurityAlert,    // Security vulnerability
-    StateChange,      // Issue/PR state changed
-    Subscribed,       // Watching the repo
-    TeamMention,      // Team mentioned
+    Assign,          // Assigned to you
+    Author,          // You're the author
+    Comment,         // Commented on
+    Invitation,      // Invited to contribute
+    Manual,          // Manually subscribed
+    Mention,         // Mentioned you
+    ReviewRequested, // Review requested
+    SecurityAlert,   // Security vulnerability
+    StateChange,     // Issue/PR state changed
+    Subscribed,      // Watching the repo
+    TeamMention,     // Team mentioned
     #[serde(other)]
     Other,
 }

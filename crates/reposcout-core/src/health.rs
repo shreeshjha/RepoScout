@@ -218,13 +218,13 @@ impl HealthCalculator {
         let days_since_push = (now - pushed_at).num_days();
 
         match days_since_push {
-            0..=7 => 30,       // Within a week: excellent
-            8..=30 => 25,      // Within a month: very good
-            31..=90 => 20,     // Within 3 months: good
-            91..=180 => 15,    // Within 6 months: moderate
-            181..=365 => 10,   // Within a year: low
-            366..=730 => 5,    // Within 2 years: very low
-            _ => 0,            // Over 2 years: inactive
+            0..=7 => 30,     // Within a week: excellent
+            8..=30 => 25,    // Within a month: very good
+            31..=90 => 20,   // Within 3 months: good
+            91..=180 => 15,  // Within 6 months: moderate
+            181..=365 => 10, // Within a year: low
+            366..=730 => 5,  // Within 2 years: very low
+            _ => 0,          // Over 2 years: inactive
         }
     }
 
@@ -263,12 +263,12 @@ impl HealthCalculator {
 
         // Lower ratio is better (fewer issues per star)
         match issue_ratio {
-            r if r < 0.01 => 20,    // Excellent: < 1%
-            r if r < 0.05 => 17,    // Very good: < 5%
-            r if r < 0.10 => 14,    // Good: < 10%
-            r if r < 0.20 => 11,    // Moderate: < 20%
-            r if r < 0.30 => 8,     // Fair: < 30%
-            _ => 5,                 // Poor: >= 30%
+            r if r < 0.01 => 20, // Excellent: < 1%
+            r if r < 0.05 => 17, // Very good: < 5%
+            r if r < 0.10 => 14, // Good: < 10%
+            r if r < 0.20 => 11, // Moderate: < 20%
+            r if r < 0.30 => 8,  // Fair: < 30%
+            _ => 5,              // Poor: >= 30%
         }
     }
 
@@ -277,12 +277,12 @@ impl HealthCalculator {
         let days_old = (now - created_at).num_days();
 
         match days_old {
-            0..=30 => 3,         // Brand new
-            31..=90 => 5,        // Very young
-            91..=180 => 8,       // Young
-            181..=365 => 11,     // Established
-            366..=730 => 13,     // Mature
-            _ => 15,             // Very mature (2+ years)
+            0..=30 => 3,     // Brand new
+            31..=90 => 5,    // Very young
+            91..=180 => 8,   // Young
+            181..=365 => 11, // Established
+            366..=730 => 13, // Mature
+            _ => 15,         // Very mature (2+ years)
         }
     }
 
@@ -354,16 +354,13 @@ mod tests {
         let pushed = now - Duration::days(7); // Pushed last week
 
         let health = HealthCalculator::calculate(
-            1000,   // stars
-            200,    // forks
-            50,     // watchers
-            10,     // open issues
-            created,
-            now,
-            pushed,
-            false,  // not archived
-            true,   // has description
-            5,      // topics
+            1000, // stars
+            200,  // forks
+            50,   // watchers
+            10,   // open issues
+            created, now, pushed, false, // not archived
+            true,  // has description
+            5,     // topics
         );
 
         assert_eq!(health.status, HealthStatus::Healthy);
@@ -378,8 +375,7 @@ mod tests {
         let pushed = now - Duration::days(30);
 
         let health = HealthCalculator::calculate(
-            5000, 100, 50, 5, created, now, pushed,
-            true, // archived
+            5000, 100, 50, 5, created, now, pushed, true, // archived
             true, 5,
         );
 
@@ -393,9 +389,8 @@ mod tests {
         let created = now - Duration::days(1095); // 3 years old
         let pushed = now - Duration::days(500); // No push in >1 year
 
-        let health = HealthCalculator::calculate(
-            50, 5, 2, 10, created, now, pushed, false, true, 2,
-        );
+        let health =
+            HealthCalculator::calculate(50, 5, 2, 10, created, now, pushed, false, true, 2);
 
         assert_eq!(health.maintenance, MaintenanceLevel::Abandoned);
         assert!(health.score < 60);

@@ -128,7 +128,10 @@ impl GitLabClient {
     pub async fn get_readme(&self, path: &str) -> Result<String> {
         // GitLab uses URL-encoded paths
         let encoded_path = urlencoding::encode(path);
-        let url = format!("{}/projects/{}/repository/files/README.md/raw", self.base_url, encoded_path);
+        let url = format!(
+            "{}/projects/{}/repository/files/README.md/raw",
+            self.base_url, encoded_path
+        );
         let token = self.token.clone();
 
         with_retry(&self.retry_config, || async {
@@ -142,7 +145,10 @@ impl GitLabClient {
 
             if response.status() == 404 {
                 // Try other common README names
-                return Err(GitLabError::NotFound(format!("README not found for {}", path)));
+                return Err(GitLabError::NotFound(format!(
+                    "README not found for {}",
+                    path
+                )));
             }
 
             if response.status() == 401 {
@@ -169,7 +175,10 @@ impl GitLabClient {
         // GitLab uses URL-encoded paths for both project and file
         let encoded_path = urlencoding::encode(path);
         let encoded_file = urlencoding::encode(file_path);
-        let url = format!("{}/projects/{}/repository/files/{}/raw", self.base_url, encoded_path, encoded_file);
+        let url = format!(
+            "{}/projects/{}/repository/files/{}/raw",
+            self.base_url, encoded_path, encoded_file
+        );
         let token = self.token.clone();
 
         with_retry(&self.retry_config, || async {
@@ -182,7 +191,10 @@ impl GitLabClient {
             let response = request.send().await?;
 
             if response.status() == 404 {
-                return Err(GitLabError::NotFound(format!("{} not found in {}", file_path, path)));
+                return Err(GitLabError::NotFound(format!(
+                    "{} not found in {}",
+                    file_path, path
+                )));
             }
 
             if response.status() == 401 {
@@ -223,7 +235,11 @@ impl GitLabClient {
     ///
     /// Uses the GitLab Search API with scope=blobs
     /// Requires authentication for most searches
-    pub async fn search_code(&self, query: &str, per_page: u32) -> Result<Vec<GitLabCodeSearchItem>> {
+    pub async fn search_code(
+        &self,
+        query: &str,
+        per_page: u32,
+    ) -> Result<Vec<GitLabCodeSearchItem>> {
         let url = format!("{}/search", self.base_url);
         let token = self.token.clone();
 

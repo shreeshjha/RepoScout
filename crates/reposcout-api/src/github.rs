@@ -166,7 +166,10 @@ impl GitHubClient {
 
     /// Get file content from repository
     pub async fn get_file_content(&self, owner: &str, repo: &str, path: &str) -> Result<String> {
-        let url = format!("{}/repos/{}/{}/contents/{}", self.base_url, owner, repo, path);
+        let url = format!(
+            "{}/repos/{}/{}/contents/{}",
+            self.base_url, owner, repo, path
+        );
         let token = self.token.clone();
 
         with_retry(&self.retry_config, || async {
@@ -185,7 +188,10 @@ impl GitHubClient {
             self.check_rate_limit(&response)?;
 
             if response.status() == 404 {
-                return Err(GitHubError::NotFound(format!("{}/{}/{}", owner, repo, path)));
+                return Err(GitHubError::NotFound(format!(
+                    "{}/{}/{}",
+                    owner, repo, path
+                )));
             }
 
             if !response.status().is_success() {
@@ -228,16 +234,16 @@ impl GitHubClient {
         let token = self.token.clone();
 
         with_retry(&self.retry_config, || async {
-            let mut request = self.client
+            let mut request = self
+                .client
                 .get(&url)
-                .query(&[
-                    ("q", query),
-                    ("per_page", &per_page.to_string()),
-                ])
+                .query(&[("q", query), ("per_page", &per_page.to_string())])
                 // Request text matches to get code snippets
                 .header(
                     reqwest::header::ACCEPT,
-                    reqwest::header::HeaderValue::from_static("application/vnd.github.text-match+json"),
+                    reqwest::header::HeaderValue::from_static(
+                        "application/vnd.github.text-match+json",
+                    ),
                 );
 
             if let Some(ref token) = token {
@@ -280,12 +286,18 @@ impl GitHubClient {
 
             // Get response text for debugging
             let response_text = response.text().await?;
-            tracing::debug!("GitHub code search response: {}", &response_text[..response_text.len().min(500)]);
+            tracing::debug!(
+                "GitHub code search response: {}",
+                &response_text[..response_text.len().min(500)]
+            );
 
-            let search_result: CodeSearchResponse = serde_json::from_str(&response_text)
-                .map_err(|e| {
+            let search_result: CodeSearchResponse =
+                serde_json::from_str(&response_text).map_err(|e| {
                     tracing::error!("Failed to parse GitHub response: {}", e);
-                    tracing::error!("Response snippet: {}", &response_text[..response_text.len().min(1000)]);
+                    tracing::error!(
+                        "Response snippet: {}",
+                        &response_text[..response_text.len().min(1000)]
+                    );
                     GitHubError::ParseError(e)
                 })?;
             Ok(search_result.items)
@@ -349,13 +361,14 @@ impl GitHubClient {
         let token = self.token.clone();
 
         with_retry(&self.retry_config, || async {
-            let mut request = self.client
-                .get(&url)
-                .query(&[
-                    ("all", if all { "true" } else { "false" }),
-                    ("participating", if participating { "true" } else { "false" }),
-                    ("per_page", &per_page.to_string()),
-                ]);
+            let mut request = self.client.get(&url).query(&[
+                ("all", if all { "true" } else { "false" }),
+                (
+                    "participating",
+                    if participating { "true" } else { "false" },
+                ),
+                ("per_page", &per_page.to_string()),
+            ]);
 
             if let Some(ref token) = token {
                 request = request.bearer_auth(token);
@@ -428,7 +441,8 @@ impl GitHubClient {
         let token = self.token.clone();
 
         with_retry(&self.retry_config, || async {
-            let mut request = self.client
+            let mut request = self
+                .client
                 .put(&url)
                 .json(&serde_json::json!({"read": true}));
 
@@ -448,7 +462,9 @@ impl GitHubClient {
             }
 
             // GitHub returns 205 or 202 for this endpoint
-            if status != reqwest::StatusCode::RESET_CONTENT && status != reqwest::StatusCode::ACCEPTED {
+            if status != reqwest::StatusCode::RESET_CONTENT
+                && status != reqwest::StatusCode::ACCEPTED
+            {
                 let _body = response.text().await.unwrap_or_default();
                 return Err(GitHubError::RequestFailed(format!(
                     "Failed to mark all notifications as read: {}",
@@ -468,8 +484,8 @@ impl GitHubClient {
             if let Some(reset) = response.headers().get("x-ratelimit-reset") {
                 if let Ok(reset_str) = reset.to_str() {
                     if let Ok(reset_timestamp) = reset_str.parse::<i64>() {
-                        let reset_at = DateTime::from_timestamp(reset_timestamp, 0)
-                            .unwrap_or_else(Utc::now);
+                        let reset_at =
+                            DateTime::from_timestamp(reset_timestamp, 0).unwrap_or_else(Utc::now);
                         return Err(GitHubError::RateLimitExceeded { reset_at });
                     }
                 }

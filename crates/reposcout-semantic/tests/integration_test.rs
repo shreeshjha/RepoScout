@@ -1,7 +1,5 @@
 use reposcout_core::models::{Platform, Repository};
-use reposcout_semantic::{
-    EmbeddingGenerator, SemanticConfig, SemanticSearchEngine, VectorIndex,
-};
+use reposcout_semantic::{EmbeddingGenerator, SemanticConfig, SemanticSearchEngine, VectorIndex};
 use tempfile::TempDir;
 
 fn create_test_repo(name: &str, description: &str, language: &str) -> Repository {
@@ -95,8 +93,7 @@ async fn test_vector_index_basic() {
     let temp_dir = TempDir::new().unwrap();
     let index_path = temp_dir.path().to_path_buf();
 
-    let mut index =
-        VectorIndex::new(384, "test-model".to_string(), index_path.clone()).unwrap();
+    let mut index = VectorIndex::new(384, "test-model".to_string(), index_path.clone()).unwrap();
 
     let generator = EmbeddingGenerator::new("sentence-transformers/all-MiniLM-L6-v2".to_string());
     generator.initialize().await.unwrap();
@@ -121,15 +118,18 @@ async fn test_vector_search() {
     let temp_dir = TempDir::new().unwrap();
     let index_path = temp_dir.path().to_path_buf();
 
-    let mut index =
-        VectorIndex::new(384, "test-model".to_string(), index_path.clone()).unwrap();
+    let mut index = VectorIndex::new(384, "test-model".to_string(), index_path.clone()).unwrap();
 
     let generator = EmbeddingGenerator::new("sentence-transformers/all-MiniLM-L6-v2".to_string());
     generator.initialize().await.unwrap();
 
     // Create test repositories
     let repos = vec![
-        create_test_repo("user/logger", "A logging library for Rust applications", "Rust"),
+        create_test_repo(
+            "user/logger",
+            "A logging library for Rust applications",
+            "Rust",
+        ),
         create_test_repo("user/webfw", "A modern web framework for Rust", "Rust"),
         create_test_repo("user/parser", "A JSON parser written in Rust", "Rust"),
     ];
@@ -203,11 +203,7 @@ async fn test_semantic_search_engine() {
     // Index some test repositories
     let repos = vec![
         (
-            create_test_repo(
-                "user/serde",
-                "A serialization framework for Rust",
-                "Rust",
-            ),
+            create_test_repo("user/serde", "A serialization framework for Rust", "Rust"),
             None,
         ),
         (
@@ -215,11 +211,7 @@ async fn test_semantic_search_engine() {
             None,
         ),
         (
-            create_test_repo(
-                "user/actix",
-                "A powerful web framework for Rust",
-                "Rust",
-            ),
+            create_test_repo("user/actix", "A powerful web framework for Rust", "Rust"),
             None,
         ),
     ];
@@ -267,16 +259,10 @@ FastLogger is a high-performance logging library for Rust applications.
         "Rust",
     );
 
-    engine
-        .index_repository(&repo, Some(readme))
-        .await
-        .unwrap();
+    engine.index_repository(&repo, Some(readme)).await.unwrap();
 
     // Search should find the repo based on README content
-    let results = engine
-        .search("zero cost async logging", 5)
-        .await
-        .unwrap();
+    let results = engine.search("zero cost async logging", 5).await.unwrap();
 
     assert!(!results.is_empty());
     assert!(results[0].repository.full_name.contains("fastlogger"));
@@ -290,8 +276,7 @@ async fn test_index_update() {
     let generator = EmbeddingGenerator::new("sentence-transformers/all-MiniLM-L6-v2".to_string());
     generator.initialize().await.unwrap();
 
-    let mut index =
-        VectorIndex::new(384, "test-model".to_string(), index_path.clone()).unwrap();
+    let mut index = VectorIndex::new(384, "test-model".to_string(), index_path.clone()).unwrap();
 
     // Add initial version
     let repo = create_test_repo("user/test", "Initial description", "Rust");
@@ -301,8 +286,12 @@ async fn test_index_update() {
     assert_eq!(index.len(), 1);
 
     // Update with new description
-    let updated_repo = create_test_repo("user/test", "Updated description with more details", "Rust");
-    let entry2 = generator.embed_repository(&updated_repo, None).await.unwrap();
+    let updated_repo =
+        create_test_repo("user/test", "Updated description with more details", "Rust");
+    let entry2 = generator
+        .embed_repository(&updated_repo, None)
+        .await
+        .unwrap();
     index.add(entry2).unwrap();
 
     // Should still have 1 entry (updated, not added)
@@ -321,8 +310,7 @@ async fn test_index_removal() {
     let generator = EmbeddingGenerator::new("sentence-transformers/all-MiniLM-L6-v2".to_string());
     generator.initialize().await.unwrap();
 
-    let mut index =
-        VectorIndex::new(384, "test-model".to_string(), index_path.clone()).unwrap();
+    let mut index = VectorIndex::new(384, "test-model".to_string(), index_path.clone()).unwrap();
 
     // Add a repository
     let repo = create_test_repo("user/test", "Test repository", "Rust");

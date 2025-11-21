@@ -112,7 +112,8 @@ impl CachedSearchEngine {
         }
 
         // All providers failed
-        Err(last_error.unwrap_or_else(|| crate::Error::ConfigError("No search providers configured".into())))
+        Err(last_error
+            .unwrap_or_else(|| crate::Error::ConfigError("No search providers configured".into())))
     }
 
     /// Search across all providers (without cache)

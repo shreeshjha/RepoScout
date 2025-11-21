@@ -8,19 +8,19 @@ use std::fmt;
 /// Supported package managers and ecosystems
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PackageManager {
-    Cargo,      // Rust (crates.io)
-    Npm,        // JavaScript/TypeScript (npmjs.com)
-    PyPI,       // Python (pypi.org)
-    Go,         // Go (pkg.go.dev)
-    Maven,      // Java (maven.org)
-    Gradle,     // Java/Kotlin (gradle.org)
-    RubyGems,   // Ruby (rubygems.org)
-    Composer,   // PHP (packagist.org)
-    NuGet,      // .NET (nuget.org)
-    Pub,        // Dart/Flutter (pub.dev)
-    CocoaPods,  // iOS/macOS (cocoapods.org)
-    Swift,      // Swift (swift.org)
-    Hex,        // Elixir (hex.pm)
+    Cargo,     // Rust (crates.io)
+    Npm,       // JavaScript/TypeScript (npmjs.com)
+    PyPI,      // Python (pypi.org)
+    Go,        // Go (pkg.go.dev)
+    Maven,     // Java (maven.org)
+    Gradle,    // Java/Kotlin (gradle.org)
+    RubyGems,  // Ruby (rubygems.org)
+    Composer,  // PHP (packagist.org)
+    NuGet,     // .NET (nuget.org)
+    Pub,       // Dart/Flutter (pub.dev)
+    CocoaPods, // iOS/macOS (cocoapods.org)
+    Swift,     // Swift (swift.org)
+    Hex,       // Elixir (hex.pm)
 }
 
 impl fmt::Display for PackageManager {
@@ -206,7 +206,8 @@ impl PackageDetector {
     /// This is a heuristic - we try to get the canonical package name
     pub fn extract_package_name(repo: &Repository, manager: PackageManager) -> Option<String> {
         // Extract repo name from full_name (owner/repo → repo)
-        let repo_name = repo.full_name
+        let repo_name = repo
+            .full_name
             .split('/')
             .next_back()
             .unwrap_or(&repo.full_name)
@@ -309,6 +310,12 @@ impl License {
             // Unknown licenses
             (License::Unknown, _) | (_, License::Unknown) => LicenseCompatibility::Unknown,
 
+            // GPL is not compatible with proprietary
+            (GPL2 | GPL3 | AGPL, Proprietary) | (Proprietary, GPL2 | GPL3 | AGPL) => Incompatible,
+
+            // LGPL has some restrictions (check before permissive licenses)
+            (LGPL, _) | (_, LGPL) => Warning,
+
             // MIT is compatible with almost everything
             (MIT, _) | (_, MIT) => Compatible,
             (BSD2, _) | (_, BSD2) => Compatible,
@@ -316,14 +323,6 @@ impl License {
             (Apache2, _) | (_, Apache2) => Compatible,
             (ISC, _) | (_, ISC) => Compatible,
             (Unlicense, _) | (_, Unlicense) => Compatible,
-
-            // GPL is not compatible with proprietary
-            (GPL2 | GPL3 | AGPL, Proprietary) | (Proprietary, GPL2 | GPL3 | AGPL) => {
-                Incompatible
-            }
-
-            // LGPL has some restrictions
-            (LGPL, _) | (_, LGPL) => Warning,
 
             // GPL variants have compatibility issues
             (GPL2, GPL3) | (GPL3, GPL2) => Warning,
@@ -340,14 +339,18 @@ impl License {
     /// Get a human-readable compatibility message
     pub fn compatibility_message(&self, other: &License) -> String {
         match self.check_compatibility(other) {
-            LicenseCompatibility::Compatible => {
-                "✓ Licenses are compatible".to_string()
-            }
+            LicenseCompatibility::Compatible => "✓ Licenses are compatible".to_string(),
             LicenseCompatibility::Warning => {
-                format!("⚠ {} and {} may have compatibility issues - review license terms", self, other)
+                format!(
+                    "⚠ {} and {} may have compatibility issues - review license terms",
+                    self, other
+                )
             }
             LicenseCompatibility::Incompatible => {
-                format!("✗ {} and {} are incompatible - cannot be used together", self, other)
+                format!(
+                    "✗ {} and {} are incompatible - cannot be used together",
+                    self, other
+                )
             }
             LicenseCompatibility::Unknown => {
                 "? License compatibility unknown - manual review required".to_string()

@@ -15,9 +15,7 @@ pub mod search;
 pub use embeddings::{cosine_similarity, EmbeddingGenerator};
 pub use error::{Result, SemanticError};
 pub use index::VectorIndex;
-pub use models::{
-    EmbeddingEntry, IndexStats, SemanticConfig, SemanticSearchResult,
-};
+pub use models::{EmbeddingEntry, IndexStats, SemanticConfig, SemanticSearchResult};
 pub use preprocessing::{preprocess_query, preprocess_repository};
 pub use search::SemanticSearchEngine;
 

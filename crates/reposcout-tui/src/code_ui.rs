@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
+use syntect::highlighting::{Style as SyntectStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
@@ -50,17 +50,25 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
         let loading_text = vec![
             Line::from(""),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("  🔄 Searching code...", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            ]),
+            Line::from(vec![Span::styled(
+                "  🔄 Searching code...",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("  Please wait while we search across platforms", Style::default().fg(Color::DarkGray)),
-            ]),
+            Line::from(vec![Span::styled(
+                "  Please wait while we search across platforms",
+                Style::default().fg(Color::DarkGray),
+            )]),
         ];
 
         let paragraph = Paragraph::new(loading_text)
-            .block(Block::default().borders(Borders::ALL).title(" Code Results (Loading...) "))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Code Results (Loading...) "),
+            )
             .alignment(ratatui::layout::Alignment::Center);
 
         frame.render_widget(paragraph, list_area);
@@ -71,29 +79,39 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
     if app.code_results.is_empty() {
         let empty_text = vec![
             Line::from(""),
-            Line::from(vec![
-                Span::styled("  No code results found", Style::default().fg(Color::Yellow)),
-            ]),
+            Line::from(vec![Span::styled(
+                "  No code results found",
+                Style::default().fg(Color::Yellow),
+            )]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("  Tips:", Style::default().fg(Color::Cyan)),
-            ]),
-            Line::from(vec![
-                Span::styled("  • Press 'F' to open filters", Style::default().fg(Color::DarkGray)),
-            ]),
-            Line::from(vec![
-                Span::styled("  • Try broader search terms", Style::default().fg(Color::DarkGray)),
-            ]),
-            Line::from(vec![
-                Span::styled("  • Check your filter settings", Style::default().fg(Color::DarkGray)),
-            ]),
-            Line::from(vec![
-                Span::styled("  • Ensure GitHub/GitLab token is configured", Style::default().fg(Color::DarkGray)),
-            ]),
+            Line::from(vec![Span::styled(
+                "  Tips:",
+                Style::default().fg(Color::Cyan),
+            )]),
+            Line::from(vec![Span::styled(
+                "  • Press 'F' to open filters",
+                Style::default().fg(Color::DarkGray),
+            )]),
+            Line::from(vec![Span::styled(
+                "  • Try broader search terms",
+                Style::default().fg(Color::DarkGray),
+            )]),
+            Line::from(vec![Span::styled(
+                "  • Check your filter settings",
+                Style::default().fg(Color::DarkGray),
+            )]),
+            Line::from(vec![Span::styled(
+                "  • Ensure GitHub/GitLab token is configured",
+                Style::default().fg(Color::DarkGray),
+            )]),
         ];
 
         let paragraph = Paragraph::new(empty_text)
-            .block(Block::default().borders(Borders::ALL).title(" Code Results (0) "))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Code Results (0) "),
+            )
             .alignment(ratatui::layout::Alignment::Center);
 
         frame.render_widget(paragraph, list_area);
@@ -116,9 +134,13 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
 
             // Line 1: Index + File path (with icon)
             let name_style = if is_selected {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             };
 
             // Extract filename and directory
@@ -129,12 +151,19 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
             };
 
             let line1 = Line::from(vec![
-                Span::styled(format!("{:>3}. ", i + 1), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{:>3}. ", i + 1),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled("📄 ", Style::default().fg(Color::Blue)),
-                Span::styled(filename, name_style.clone()),
+                Span::styled(filename, name_style),
                 Span::raw(" "),
                 Span::styled(
-                    if !dir.is_empty() { format!("({})", dir) } else { String::new() },
+                    if !dir.is_empty() {
+                        format!("({})", dir)
+                    } else {
+                        String::new()
+                    },
                     Style::default().fg(Color::DarkGray),
                 ),
             ]);
@@ -144,7 +173,10 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
                 Span::raw("      "),
                 Span::styled(
                     format!(" {} ", result.platform),
-                    Style::default().fg(Color::Black).bg(platform_bg).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(platform_bg)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw("  "),
                 Span::styled(&result.repository, Style::default().fg(Color::White)),
@@ -180,7 +212,11 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
                     Style::default().fg(Color::Green),
                 ),
                 Span::styled(
-                    format!("• {} match{}", match_count, if match_count == 1 { "" } else { "es" }),
+                    format!(
+                        "• {} match{}",
+                        match_count,
+                        if match_count == 1 { "" } else { "es" }
+                    ),
                     Style::default().fg(Color::Rgb(150, 150, 150)),
                 ),
             ]);
@@ -196,12 +232,11 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
                 Line::from("")
             };
 
-            ListItem::new(vec![line1, line2, line3, line4])
-                .style(if is_selected {
-                    Style::default().bg(Color::Rgb(40, 40, 60))
-                } else {
-                    Style::default()
-                })
+            ListItem::new(vec![line1, line2, line3, line4]).style(if is_selected {
+                Style::default().bg(Color::Rgb(40, 40, 60))
+            } else {
+                Style::default()
+            })
         })
         .collect();
 
@@ -216,7 +251,11 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(title)
-                .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                .title_style(
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
         )
         .highlight_style(
             Style::default()
@@ -229,17 +268,31 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Render code filter panel
 fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
-    let filter_fields = vec![
-        ("Language", app.code_filters.language.as_deref().unwrap_or("")),
+    let filter_fields = [
+        (
+            "Language",
+            app.code_filters.language.as_deref().unwrap_or(""),
+        ),
         ("Repository", app.code_filters.repo.as_deref().unwrap_or("")),
         ("Path", app.code_filters.path.as_deref().unwrap_or("")),
-        ("Extension", app.code_filters.extension.as_deref().unwrap_or("")),
+        (
+            "Extension",
+            app.code_filters.extension.as_deref().unwrap_or(""),
+        ),
     ];
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(" Code Search Filters ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("(↑↓: navigate | Enter: edit | Del: clear | F: close)", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                " Code Search Filters ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "(↑↓: navigate | Enter: edit | Del: clear | F: close)",
+                Style::default().fg(Color::DarkGray),
+            ),
         ]),
         Line::from(""),
     ];
@@ -249,7 +302,9 @@ fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
         let is_editing = is_active && app.input_mode == InputMode::EditingFilter;
 
         let label_style = if is_active {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Cyan)
         };
@@ -258,7 +313,9 @@ fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
         let value_style = if is_editing {
             Style::default().fg(Color::Black).bg(Color::Yellow)
         } else if is_active {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
         } else if value.is_empty() {
             Style::default().fg(Color::DarkGray)
         } else {
@@ -274,12 +331,11 @@ fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
         ]));
     }
 
-    let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
-        );
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
 
     frame.render_widget(paragraph, area);
 }
@@ -309,13 +365,15 @@ pub fn render_code_preview(frame: &mut Frame, app: &App, area: Rect) {
         // No result selected
         let text = vec![
             Line::from(""),
-            Line::from(vec![
-                Span::styled("No code result selected", Style::default().fg(Color::DarkGray)),
-            ]),
+            Line::from(vec![Span::styled(
+                "No code result selected",
+                Style::default().fg(Color::DarkGray),
+            )]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("Navigate results with j/k or ↑↓", Style::default().fg(Color::DarkGray)),
-            ]),
+            Line::from(vec![Span::styled(
+                "Navigate results with j/k or ↑↓",
+                Style::default().fg(Color::DarkGray),
+            )]),
         ];
 
         let paragraph = Paragraph::new(text)
@@ -323,7 +381,11 @@ pub fn render_code_preview(frame: &mut Frame, app: &App, area: Rect) {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Code Preview ")
-                    .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                    .title_style(
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
             )
             .alignment(ratatui::layout::Alignment::Center);
 
@@ -333,7 +395,7 @@ pub fn render_code_preview(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Render code preview tabs
 fn render_code_preview_tabs(frame: &mut Frame, app: &App, area: Rect) {
-    let tabs = vec![
+    let tabs = [
         ("Code", CodePreviewMode::Code),
         ("Raw", CodePreviewMode::Raw),
         ("File Info", CodePreviewMode::FileInfo),
@@ -368,17 +430,22 @@ fn render_code_preview_tabs(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let tabs_line = Line::from(tab_spans);
-    let tabs_widget = Paragraph::new(vec![
-        Line::from(""),
-        tabs_line,
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Preview Mode (TAB to switch)"));
+    let tabs_widget = Paragraph::new(vec![Line::from(""), tabs_line]).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Preview Mode (TAB to switch)"),
+    );
 
     frame.render_widget(tabs_widget, area);
 }
 
 /// Render code tab with syntax highlighting
-fn render_code_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models::CodeSearchResult, area: Rect) {
+fn render_code_tab(
+    frame: &mut Frame,
+    app: &App,
+    result: &reposcout_core::models::CodeSearchResult,
+    area: Rect,
+) {
     let mut preview_lines: Vec<Line> = vec![];
 
     // File header with breadcrumb
@@ -386,7 +453,12 @@ fn render_code_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models
         Span::styled("📁 ", Style::default().fg(Color::Blue)),
         Span::styled(&result.repository, Style::default().fg(Color::Cyan)),
         Span::styled(" / ", Style::default().fg(Color::DarkGray)),
-        Span::styled(&result.file_path, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            &result.file_path,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]));
     preview_lines.push(Line::from(""));
 
@@ -394,10 +466,19 @@ fn render_code_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models
     if result.matches.len() > 1 {
         preview_lines.push(Line::from(vec![
             Span::styled(
-                format!("Match {}/{} ", app.code_match_index + 1, result.matches.len()),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                format!(
+                    "Match {}/{} ",
+                    app.code_match_index + 1,
+                    result.matches.len()
+                ),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("(n: next match, N: prev match)", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "(n: next match, N: prev match)",
+                Style::default().fg(Color::DarkGray),
+            ),
         ]));
         preview_lines.push(Line::from(""));
     }
@@ -417,16 +498,19 @@ fn render_code_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models
 
         if idx > 0 && result.matches.len() <= 3 {
             preview_lines.push(Line::from(""));
-            preview_lines.push(Line::from(vec![
-                Span::styled("─".repeat(60), Style::default().fg(Color::DarkGray)),
-            ]));
+            preview_lines.push(Line::from(vec![Span::styled(
+                "─".repeat(60),
+                Style::default().fg(Color::DarkGray),
+            )]));
             preview_lines.push(Line::from(""));
         }
 
         // Match header with line number
         let is_current = idx == app.code_match_index;
         let header_style = if is_current {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Cyan)
         };
@@ -435,10 +519,7 @@ fn render_code_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models
 
         preview_lines.push(Line::from(vec![
             Span::styled(marker, Style::default().fg(Color::Yellow)),
-            Span::styled(
-                format!("Line {}", code_match.line_number),
-                header_style,
-            ),
+            Span::styled(format!("Line {}", code_match.line_number), header_style),
         ]));
         preview_lines.push(Line::from(""));
 
@@ -446,7 +527,7 @@ fn render_code_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models
         let highlighted = highlight_code_with_line_numbers(
             &code_match.content,
             result.language.as_deref(),
-            code_match.line_number as usize,
+            code_match.line_number,
         );
         preview_lines.extend(highlighted);
         preview_lines.push(Line::from(""));
@@ -458,7 +539,11 @@ fn render_code_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Code (Syntax Highlighted) ")
-                .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                .title_style(
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
         )
         .wrap(Wrap { trim: false })
         .scroll((app.code_scroll, 0));
@@ -467,30 +552,37 @@ fn render_code_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models
 }
 
 /// Render raw text tab
-fn render_raw_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models::CodeSearchResult, area: Rect) {
+fn render_raw_tab(
+    frame: &mut Frame,
+    app: &App,
+    result: &reposcout_core::models::CodeSearchResult,
+    area: Rect,
+) {
     let mut preview_lines: Vec<Line> = vec![];
 
-    preview_lines.push(Line::from(vec![
-        Span::styled(&result.file_path, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-    ]));
+    preview_lines.push(Line::from(vec![Span::styled(
+        &result.file_path,
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
     preview_lines.push(Line::from(""));
 
     // Show all matches as plain text
     for (idx, code_match) in result.matches.iter().enumerate() {
         if idx > 0 {
             preview_lines.push(Line::from(""));
-            preview_lines.push(Line::from(vec![
-                Span::styled("─".repeat(50), Style::default().fg(Color::DarkGray)),
-            ]));
+            preview_lines.push(Line::from(vec![Span::styled(
+                "─".repeat(50),
+                Style::default().fg(Color::DarkGray),
+            )]));
             preview_lines.push(Line::from(""));
         }
 
-        preview_lines.push(Line::from(vec![
-            Span::styled(
-                format!("Line {}", code_match.line_number),
-                Style::default().fg(Color::Yellow),
-            ),
-        ]));
+        preview_lines.push(Line::from(vec![Span::styled(
+            format!("Line {}", code_match.line_number),
+            Style::default().fg(Color::Yellow),
+        )]));
         preview_lines.push(Line::from(""));
 
         // Plain text, no highlighting
@@ -504,7 +596,11 @@ fn render_raw_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models:
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Raw Text ")
-                .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                .title_style(
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
         )
         .wrap(Wrap { trim: false })
         .scroll((app.code_scroll, 0));
@@ -513,16 +609,25 @@ fn render_raw_tab(frame: &mut Frame, app: &App, result: &reposcout_core::models:
 }
 
 /// Render file info tab
-fn render_file_info_tab(frame: &mut Frame, _app: &App, result: &reposcout_core::models::CodeSearchResult, area: Rect) {
+fn render_file_info_tab(
+    frame: &mut Frame,
+    _app: &App,
+    result: &reposcout_core::models::CodeSearchResult,
+    area: Rect,
+) {
     let mut info_lines: Vec<Line> = vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled("File Information", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "File Information",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("━".repeat(50), Style::default().fg(Color::DarkGray)),
-        ]),
+        Line::from(vec![Span::styled(
+            "━".repeat(50),
+            Style::default().fg(Color::DarkGray),
+        )]),
         Line::from(""),
         Line::from(vec![
             Span::styled("Path:          ", Style::default().fg(Color::DarkGray)),
@@ -536,7 +641,10 @@ fn render_file_info_tab(frame: &mut Frame, _app: &App, result: &reposcout_core::
         Line::from(""),
         Line::from(vec![
             Span::styled("Platform:      ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("{}", result.platform), Style::default().fg(Color::Yellow)),
+            Span::styled(
+                format!("{}", result.platform),
+                Style::default().fg(Color::Yellow),
+            ),
         ]),
         Line::from(""),
     ];
@@ -561,31 +669,58 @@ fn render_file_info_tab(frame: &mut Frame, _app: &App, result: &reposcout_core::
         Line::from(vec![
             Span::styled("Matches:       ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                format!("{} match{}", result.matches.len(), if result.matches.len() == 1 { "" } else { "es" }),
-                Style::default().fg(Color::Green)),
+                format!(
+                    "{} match{}",
+                    result.matches.len(),
+                    if result.matches.len() == 1 { "" } else { "es" }
+                ),
+                Style::default().fg(Color::Green),
+            ),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("━".repeat(50), Style::default().fg(Color::DarkGray)),
-        ]),
+        Line::from(vec![Span::styled(
+            "━".repeat(50),
+            Style::default().fg(Color::DarkGray),
+        )]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Quick Actions", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Quick Actions",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         Line::from(vec![
             Span::styled("  • Press ", Style::default().fg(Color::DarkGray)),
-            Span::styled("ENTER", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "ENTER",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" to open in browser", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
             Span::styled("  • Press ", Style::default().fg(Color::DarkGray)),
-            Span::styled("TAB", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(" to switch preview mode", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "TAB",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " to switch preview mode",
+                Style::default().fg(Color::DarkGray),
+            ),
         ]),
         Line::from(vec![
             Span::styled("  • Press ", Style::default().fg(Color::DarkGray)),
-            Span::styled("F", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "F",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" to toggle filters", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(""),
@@ -600,7 +735,11 @@ fn render_file_info_tab(frame: &mut Frame, _app: &App, result: &reposcout_core::
             Block::default()
                 .borders(Borders::ALL)
                 .title(" File Information ")
-                .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                .title_style(
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
         )
         .wrap(Wrap { trim: false });
 
@@ -608,7 +747,11 @@ fn render_file_info_tab(frame: &mut Frame, _app: &App, result: &reposcout_core::
 }
 
 /// Syntax highlight code with line numbers
-fn highlight_code_with_line_numbers(code: &str, language: Option<&str>, start_line: usize) -> Vec<Line<'static>> {
+fn highlight_code_with_line_numbers(
+    code: &str,
+    language: Option<&str>,
+    start_line: usize,
+) -> Vec<Line<'static>> {
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
     let theme = &ts.themes["base16-ocean.dark"];
@@ -626,9 +769,8 @@ fn highlight_code_with_line_numbers(code: &str, language: Option<&str>, start_li
 
     for (line_idx, line) in LinesWithEndings::from(code).enumerate() {
         let line_number = start_line + line_idx;
-        let ranges: Vec<(SyntectStyle, &str)> = highlighter
-            .highlight_line(line, &ps)
-            .unwrap_or_default();
+        let ranges: Vec<(SyntectStyle, &str)> =
+            highlighter.highlight_line(line, &ps).unwrap_or_default();
 
         let mut spans = vec![
             // Line number
@@ -641,7 +783,10 @@ fn highlight_code_with_line_numbers(code: &str, language: Option<&str>, start_li
         // Highlighted code
         for (style, text) in ranges {
             let fg_color = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
-            spans.push(Span::styled(text.to_string(), Style::default().fg(fg_color)));
+            spans.push(Span::styled(
+                text.to_string(),
+                Style::default().fg(fg_color),
+            ));
         }
 
         result_lines.push(Line::from(spans));

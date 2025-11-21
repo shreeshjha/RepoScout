@@ -36,8 +36,9 @@ impl TokenStore {
 
         if store_path.exists() {
             let contents = std::fs::read_to_string(&store_path)?;
-            let store: TokenStore = serde_json::from_str(&contents)
-                .map_err(|e| crate::Error::ConfigError(format!("Failed to parse token store: {}", e)))?;
+            let store: TokenStore = serde_json::from_str(&contents).map_err(|e| {
+                crate::Error::ConfigError(format!("Failed to parse token store: {}", e))
+            })?;
             Ok(store)
         } else {
             Ok(Self::new())
@@ -53,8 +54,9 @@ impl TokenStore {
             std::fs::create_dir_all(parent)?;
         }
 
-        let contents = serde_json::to_string_pretty(self)
-            .map_err(|e| crate::Error::ConfigError(format!("Failed to serialize token store: {}", e)))?;
+        let contents = serde_json::to_string_pretty(self).map_err(|e| {
+            crate::Error::ConfigError(format!("Failed to serialize token store: {}", e))
+        })?;
 
         std::fs::write(&store_path, contents)?;
         Ok(())
@@ -88,7 +90,7 @@ impl TokenStore {
             .unwrap()
             .as_secs();
 
-        if now - stored.stored_at > stored.valid_for_seconds {
+        if now - stored.stored_at >= stored.valid_for_seconds {
             return None; // Token expired
         }
 

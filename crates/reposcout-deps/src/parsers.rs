@@ -91,11 +91,20 @@ pub fn parse_requirements_txt(content: &str) -> Result<DependencyInfo> {
 
         // Parse package==version or package>=version format
         let (name, version) = if let Some(idx) = line.find("==") {
-            (line[..idx].trim().to_string(), line[idx+2..].trim().to_string())
+            (
+                line[..idx].trim().to_string(),
+                line[idx + 2..].trim().to_string(),
+            )
         } else if let Some(idx) = line.find(">=") {
-            (line[..idx].trim().to_string(), format!(">={}", line[idx+2..].trim()))
+            (
+                line[..idx].trim().to_string(),
+                format!(">={}", line[idx + 2..].trim()),
+            )
         } else if let Some(idx) = line.find("~=") {
-            (line[..idx].trim().to_string(), format!("~={}", line[idx+2..].trim()))
+            (
+                line[..idx].trim().to_string(),
+                format!("~={}", line[idx + 2..].trim()),
+            )
         } else {
             (line.to_string(), "*".to_string())
         };
@@ -114,12 +123,11 @@ pub fn parse_requirements_txt(content: &str) -> Result<DependencyInfo> {
 fn extract_version(value: &toml::Value) -> String {
     match value {
         toml::Value::String(s) => s.clone(),
-        toml::Value::Table(t) => {
-            t.get("version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("*")
-                .to_string()
-        }
+        toml::Value::Table(t) => t
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("*")
+            .to_string(),
         _ => "*".to_string(),
     }
 }

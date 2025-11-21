@@ -23,8 +23,8 @@ pub fn new_and_notable_query(language: Option<&str>, days_back: i64) -> String {
 pub fn hidden_gems_query(language: Option<&str>, max_stars: u32) -> String {
     let mut parts = vec![
         format!("stars:{}..{}", 10, max_stars), // Between 10 and max_stars
-        "pushed:>2024-01-01".to_string(), // Recently updated
-        "forks:>2".to_string(), // Some community engagement
+        "pushed:>2024-01-01".to_string(),       // Recently updated
+        "forks:>2".to_string(),                 // Some community engagement
     ];
 
     if let Some(lang) = language {
@@ -79,8 +79,14 @@ pub fn awesome_lists() -> Vec<(&'static str, &'static str)> {
         ("vuejs/awesome-vue", "Awesome Vue"),
         ("awesome-foss/awesome-sysadmin", "Awesome Sysadmin"),
         ("k4m4/movies-for-hackers", "Movies for Hackers"),
-        ("sdmg15/Best-websites-a-programmer-should-visit", "Best Websites"),
-        ("EbookFoundation/free-programming-books", "Free Programming Books"),
+        (
+            "sdmg15/Best-websites-a-programmer-should-visit",
+            "Best Websites",
+        ),
+        (
+            "EbookFoundation/free-programming-books",
+            "Free Programming Books",
+        ),
         ("awesome-lists/awesome-bash", "Awesome Bash"),
         ("veggiemonk/awesome-docker", "Awesome Docker"),
     ]
@@ -95,7 +101,12 @@ pub fn calculate_traction_score(stars: u32, created_days_ago: i64) -> f64 {
 }
 
 /// Calculate "gem score" for hidden gems (activity vs popularity)
-pub fn calculate_gem_score(stars: u32, forks: u32, open_issues: u32, days_since_update: i64) -> f64 {
+pub fn calculate_gem_score(
+    stars: u32,
+    forks: u32,
+    open_issues: u32,
+    days_since_update: i64,
+) -> f64 {
     // Higher score for recent activity and engagement relative to stars
     let recency_multiplier = if days_since_update < 7 {
         2.0

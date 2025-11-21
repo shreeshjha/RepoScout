@@ -1,18 +1,18 @@
 // TUI application state and event handling
-use reposcout_core::models::{Repository, CodeSearchResult};
-use reposcout_deps::DependencyInfo;
-use reposcout_cache::SearchHistoryEntry;
 use ratatui::widgets::ListState;
+use reposcout_cache::SearchHistoryEntry;
+use reposcout_core::models::{CodeSearchResult, Repository};
+use reposcout_deps::DependencyInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
-    Repository,     // Searching for repositories (default)
-    Code,           // Searching for code
-    Trending,       // Browsing trending repositories
-    Notifications,  // Viewing GitHub notifications
-    Semantic,       // Semantic search with natural language
-    Portfolio,      // Viewing portfolio/watchlist
-    Discovery,      // Enhanced discovery (New & Notable, Hidden Gems, Topics, Awesome Lists)
+    Repository,    // Searching for repositories (default)
+    Code,          // Searching for code
+    Trending,      // Browsing trending repositories
+    Notifications, // Viewing GitHub notifications
+    Semantic,      // Semantic search with natural language
+    Portfolio,     // Viewing portfolio/watchlist
+    Discovery,     // Enhanced discovery (New & Notable, Hidden Gems, Topics, Awesome Lists)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,18 +29,18 @@ pub enum InputMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
-    Stats,         // Show repository statistics
-    Readme,        // Show README content
-    Activity,      // Show repository activity/commits
-    Dependencies,  // Show dependency analysis
-    Package,       // Show package manager info and install commands
+    Stats,        // Show repository statistics
+    Readme,       // Show README content
+    Activity,     // Show repository activity/commits
+    Dependencies, // Show dependency analysis
+    Package,      // Show package manager info and install commands
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodePreviewMode {
-    Code,       // Show highlighted code with context
-    Raw,        // Show raw text
-    FileInfo,   // Show file metadata and repository info
+    Code,     // Show highlighted code with context
+    Raw,      // Show raw text
+    FileInfo, // Show file metadata and repository info
 }
 
 #[derive(Debug, Clone)]
@@ -100,23 +100,12 @@ impl SearchFilters {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CodeSearchFilters {
     pub language: Option<String>,
     pub repo: Option<String>,
     pub path: Option<String>,
     pub extension: Option<String>,
-}
-
-impl Default for CodeSearchFilters {
-    fn default() -> Self {
-        Self {
-            language: None,
-            repo: None,
-            path: None,
-            extension: None,
-        }
-    }
 }
 
 impl CodeSearchFilters {
@@ -285,10 +274,10 @@ pub struct App {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiscoveryCategory {
-    NewAndNotable,  // Recently created repos gaining traction
-    HiddenGems,     // Quality repos with low stars
-    Topics,         // Browse by topic categories
-    AwesomeLists,   // Curated awesome-* collections
+    NewAndNotable, // Recently created repos gaining traction
+    HiddenGems,    // Quality repos with low stars
+    Topics,        // Browse by topic categories
+    AwesomeLists,  // Curated awesome-* collections
 }
 
 #[derive(Debug, Clone)]
@@ -344,8 +333,8 @@ impl App {
             code_match_index: 0,
             code_content_cache: std::collections::HashMap::new(),
             platform_status: PlatformStatus {
-                github_configured: true,  // Always available (public repos don't need auth)
-                gitlab_configured: true,  // Always available (public repos don't need auth)
+                github_configured: true, // Always available (public repos don't need auth)
+                gitlab_configured: true, // Always available (public repos don't need auth)
                 bitbucket_configured: false,
             },
             search_history: Vec::new(),
@@ -408,8 +397,8 @@ impl App {
 
     /// Apply fuzzy filter to results
     pub fn apply_fuzzy_filter(&mut self) {
-        use fuzzy_matcher::FuzzyMatcher;
         use fuzzy_matcher::skim::SkimMatcherV2;
+        use fuzzy_matcher::FuzzyMatcher;
 
         if self.fuzzy_input.is_empty() {
             // No filter, show all results
@@ -457,7 +446,8 @@ impl App {
     /// Check if current repository is bookmarked
     pub fn is_current_bookmarked(&self) -> bool {
         if let Some(repo) = self.selected_repository() {
-            let key = Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
+            let key =
+                Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
             self.bookmarked.contains(&key)
         } else {
             false
@@ -467,7 +457,8 @@ impl App {
     /// Add/remove current repository from bookmarks
     pub fn toggle_current_bookmark(&mut self) {
         if let Some(repo) = self.selected_repository() {
-            let key = Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
+            let key =
+                Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
             if self.bookmarked.contains(&key) {
                 self.bookmarked.remove(&key);
             } else {
@@ -502,10 +493,8 @@ impl App {
         self.reset_readme_scroll();
 
         // Auto-detect package info when switching to Package tab
-        if self.preview_mode == PreviewMode::Package {
-            if self.get_cached_package_info().is_none() {
-                self.detect_package_info();
-            }
+        if self.preview_mode == PreviewMode::Package && self.get_cached_package_info().is_none() {
+            self.detect_package_info();
         }
     }
 
@@ -599,8 +588,16 @@ impl App {
         // Load current filter value into edit buffer
         self.filter_edit_buffer = match self.filter_cursor {
             0 => self.filters.language.clone().unwrap_or_default(),
-            1 => self.filters.min_stars.map(|s| s.to_string()).unwrap_or_default(),
-            2 => self.filters.max_stars.map(|s| s.to_string()).unwrap_or_default(),
+            1 => self
+                .filters
+                .min_stars
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            2 => self
+                .filters
+                .max_stars
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
             3 => self.filters.pushed.clone().unwrap_or_default(),
             4 => self.filters.sort_by.clone(),
             _ => String::new(),
@@ -772,7 +769,11 @@ impl App {
     }
 
     /// Cache package info for a repository
-    pub fn cache_package_info(&mut self, repo_name: String, packages: Vec<reposcout_core::PackageInfo>) {
+    pub fn cache_package_info(
+        &mut self,
+        repo_name: String,
+        packages: Vec<reposcout_core::PackageInfo>,
+    ) {
         self.package_info_cache.insert(repo_name, packages);
     }
 
@@ -793,7 +794,9 @@ impl App {
 
             let mut packages = Vec::new();
             for manager in managers {
-                if let Some(pkg_name) = reposcout_core::PackageDetector::extract_package_name(repo, manager) {
+                if let Some(pkg_name) =
+                    reposcout_core::PackageDetector::extract_package_name(repo, manager)
+                {
                     let pkg_info = reposcout_core::PackageInfo::new(manager, pkg_name);
                     packages.push(pkg_info);
                 }
@@ -894,7 +897,8 @@ impl App {
     /// Navigate to next code search result
     pub fn next_code_result(&mut self) {
         if !self.code_results.is_empty() {
-            self.code_selected_index = (self.code_selected_index + 1).min(self.code_results.len() - 1);
+            self.code_selected_index =
+                (self.code_selected_index + 1).min(self.code_results.len() - 1);
         }
     }
 
@@ -1017,7 +1021,8 @@ impl App {
     /// Navigate to next history entry
     pub fn next_history_entry(&mut self) {
         if !self.search_history.is_empty() {
-            self.history_selected_index = (self.history_selected_index + 1).min(self.search_history.len() - 1);
+            self.history_selected_index =
+                (self.history_selected_index + 1).min(self.search_history.len() - 1);
         }
     }
 
@@ -1181,7 +1186,8 @@ impl App {
     /// Navigate to next notification
     pub fn next_notification(&mut self) {
         if !self.notifications.is_empty() {
-            self.notifications_selected_index = (self.notifications_selected_index + 1) % self.notifications.len();
+            self.notifications_selected_index =
+                (self.notifications_selected_index + 1) % self.notifications.len();
         }
     }
 
@@ -1226,7 +1232,10 @@ impl App {
     /// Cycle to next theme
     pub fn next_theme(&mut self) {
         let themes = reposcout_core::Theme::all_themes();
-        if let Some(current_idx) = themes.iter().position(|t| t.name == self.current_theme.name) {
+        if let Some(current_idx) = themes
+            .iter()
+            .position(|t| t.name == self.current_theme.name)
+        {
             let next_idx = (current_idx + 1) % themes.len();
             self.current_theme = themes[next_idx].clone();
         }
@@ -1235,8 +1244,15 @@ impl App {
     /// Cycle to previous theme
     pub fn previous_theme(&mut self) {
         let themes = reposcout_core::Theme::all_themes();
-        if let Some(current_idx) = themes.iter().position(|t| t.name == self.current_theme.name) {
-            let prev_idx = if current_idx == 0 { themes.len() - 1 } else { current_idx - 1 };
+        if let Some(current_idx) = themes
+            .iter()
+            .position(|t| t.name == self.current_theme.name)
+        {
+            let prev_idx = if current_idx == 0 {
+                themes.len() - 1
+            } else {
+                current_idx - 1
+            };
             self.current_theme = themes[prev_idx].clone();
         }
     }
@@ -1244,7 +1260,12 @@ impl App {
     // Portfolio/Watchlist management methods
 
     /// Add current repository to a portfolio
-    pub fn add_to_portfolio(&mut self, portfolio_id: &str, notes: Option<String>, tags: Vec<String>) -> Result<(), String> {
+    pub fn add_to_portfolio(
+        &mut self,
+        portfolio_id: &str,
+        notes: Option<String>,
+        tags: Vec<String>,
+    ) -> Result<(), String> {
         if let Some(repo) = self.selected_repository().cloned() {
             self.portfolio_manager
                 .add_repo_to_portfolio(portfolio_id, repo, notes, tags)
@@ -1274,7 +1295,8 @@ impl App {
         color: reposcout_core::PortfolioColor,
         icon: reposcout_core::PortfolioIcon,
     ) -> reposcout_core::Portfolio {
-        self.portfolio_manager.create_portfolio(name, description, color, icon)
+        self.portfolio_manager
+            .create_portfolio(name, description, color, icon)
     }
 
     /// Get all portfolios
