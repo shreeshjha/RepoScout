@@ -242,6 +242,7 @@ Good question. Here's why RepoScout exists:
 5. **Semantic search changes everything** - Search by what you want to do, not just keywords
 6. **I wanted to build something cool in Rust** - Most honest reason
 
+
 ## Contributing
 
 PRs welcome! Just make sure:
