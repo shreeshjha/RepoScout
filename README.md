@@ -117,16 +117,16 @@ Good question. Here's why RepoScout exists:
 - [x] Basic CLI with argument parsing
 - [x] Error handling framework
 - [x] Logging setup
-- [ ] GitHub API client
-- [ ] GitLab API client
-- [ ] SQLite caching with FTS5
-- [ ] Search engine core
-- [ ] Interactive TUI
-- [ ] Semantic search with embeddings
-- [ ] Local repository management
-- [ ] Collections and watchlists
-- [ ] Configuration system
-- [ ] Tests (lots of them)
+- [x] GitHub API client
+- [x] GitLab API client
+- [x] SQLite caching with FTS5
+- [x] Search engine core
+- [x] Interactive TUI
+- [x] Semantic search with embeddings
+- [x] Local repository management
+- [x] Collections and watchlists
+- [x] Configuration system
+- [x] Tests (lots of them)
 
 ## Contributing
 
