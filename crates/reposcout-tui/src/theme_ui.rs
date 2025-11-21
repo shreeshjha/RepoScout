@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
@@ -15,21 +15,21 @@ pub fn render_theme_selector(frame: &mut Frame, app: &App, area: Rect) {
     // Clear background
     frame.render_widget(Clear, popup_area);
 
+    // Split popup into list area and preview area
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(5)])
+        .split(popup_area);
+
+    let list_area = chunks[0];
+
     let themes = reposcout_core::Theme::all_themes();
     let current_theme_name = &app.current_theme.name;
 
     let items: Vec<ListItem> = themes
         .iter()
-        .enumerate()
-        .map(|(idx, theme)| {
-            let is_selected = idx == app.theme_selector_index;
+        .map(|theme| {
             let is_current = &theme.name == current_theme_name;
-
-            let style = if is_selected {
-                Style::default().bg(Color::Rgb(68, 71, 90))
-            } else {
-                Style::default()
-            };
 
             let indicator = if is_current { "● " } else { "  " };
 
@@ -49,14 +49,13 @@ pub fn render_theme_selector(frame: &mut Frame, app: &App, area: Rect) {
 
             ListItem::new(vec![
                 Line::from(vec![
-                    Span::styled(preview, style.fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(preview, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 ]),
                 Line::from(vec![
-                    Span::styled(color_preview, style.fg(Color::Gray)),
+                    Span::styled(color_preview, Style::default().fg(Color::Gray)),
                 ]),
                 Line::from(""),
             ])
-            .style(style)
         })
         .collect();
 
@@ -64,19 +63,24 @@ pub fn render_theme_selector(frame: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("🎨 Theme Selector")
+                .title("Theme Selector")
                 .border_style(Style::default().fg(Color::Magenta)),
         )
-        .highlight_style(Style::default().add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .bg(Color::Rgb(68, 71, 90))
+                .add_modifier(Modifier::BOLD)
+        )
+        .highlight_symbol("▶ ");
 
-    frame.render_widget(list, popup_area);
+    // Create list state with current selection
+    let mut list_state = ListState::default();
+    list_state.select(Some(app.theme_selector_index));
+
+    // Render with stateful widget to enable scrolling
+    frame.render_stateful_widget(list, list_area, &mut list_state);
 
     // Render preview of selected theme colors at bottom
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(5)])
-        .split(popup_area);
-
     if let Some(selected_theme) = themes.get(app.theme_selector_index) {
         render_theme_preview(frame, selected_theme, chunks[1]);
     }

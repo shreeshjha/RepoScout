@@ -179,6 +179,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         crate::theme_ui::render_theme_selector(frame, app, frame.area());
     }
 
+    // Render keybindings help if active
+    if app.show_keybindings_help {
+        crate::help_ui::render_keybindings_help(frame, app, frame.area());
+    }
+
     // Render status bar
     render_status_bar(frame, app, status_area);
 }
@@ -1541,13 +1546,13 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                 use crate::PreviewMode;
                 match app.search_mode {
                     SearchMode::Code => {
-                        Span::styled("j/k: navigate | F: filters | TAB: tabs | n/N: matches | /: search | ENTER: open | M: mode | q: quit", Style::default().fg(Color::Green))
+                        Span::styled("j/k: navigate | F: filters | TAB: tabs | n/N: matches | /: search | M: mode | ?: help | q: quit", Style::default().fg(Color::Green))
                     }
                     SearchMode::Repository => {
                         if app.preview_mode == PreviewMode::Readme {
-                            Span::styled("README | j/k: scroll | TAB: tab | D: discovery | M: mode | Ctrl+R: history | Ctrl+S: settings | q: quit", Style::default().fg(Color::Cyan))
+                            Span::styled("README | j/k: scroll | TAB: tab | D: discovery | M: mode | ?: help | q: quit", Style::default().fg(Color::Cyan))
                         } else {
-                            Span::raw("j/k: navigate | /: search | f: fuzzy | F: filters | D: discovery | M: mode | TAB: tabs | b: bookmark | q: quit")
+                            Span::raw("j/k: navigate | /: search | f: fuzzy | F: filters | M: mode | ?: help | q: quit")
                         }
                     }
                     SearchMode::Trending => {
@@ -1567,7 +1572,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                         Span::styled("j/k: navigate | N: new portfolio | +: add repo | -: remove | ENTER: view | T: theme | M: mode | q: quit", Style::default().fg(Color::Rgb(249, 226, 175)))
                     }
                     SearchMode::Discovery => {
-                        Span::styled("Tab/h/l: category | j/k: navigate | 1/2/3: quick search | ENTER: search | D/Backspace: return | M: mode | q: quit", Style::default().fg(Color::Rgb(147, 112, 219)))
+                        Span::styled("Tab/h/l: category | j/k: navigate | 1/2/3: quick | ENTER: search | M: mode | ?: help | q: quit", Style::default().fg(Color::Rgb(147, 112, 219)))
                     }
                 }
             }

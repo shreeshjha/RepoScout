@@ -271,6 +271,406 @@ impl Theme {
         }
     }
 
+    /// Get Solarized Dark theme
+    pub fn solarized_dark() -> Self {
+        Self {
+            name: "Solarized Dark".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x002b36),
+                foreground: Color::rgb(0x839496),
+                border: Color::rgb(0x073642),
+                border_focused: Color::rgb(0x268bd2),
+
+                success: Color::rgb(0x859900),
+                warning: Color::rgb(0xb58900),
+                error: Color::rgb(0xdc322f),
+                info: Color::rgb(0x2aa198),
+
+                title: Color::rgb(0x6c71c4),
+                subtitle: Color::rgb(0x93a1a1),
+                selected: Color::rgb(0x268bd2),
+                selected_bg: Color::rgb(0x073642),
+                tab_active: Color::rgb(0xd33682),
+                tab_inactive: Color::rgb(0x586e75),
+
+                primary: Color::rgb(0x268bd2),
+                secondary: Color::rgb(0xd33682),
+                accent: Color::rgb(0xb58900),
+                muted: Color::rgb(0x586e75),
+
+                health_healthy: Color::rgb(0x859900),
+                health_moderate: Color::rgb(0xb58900),
+                health_warning: Color::rgb(0xcb4b16),
+                health_critical: Color::rgb(0xdc322f),
+
+                stars: Color::rgb(0xb58900),
+                forks: Color::rgb(0x2aa198),
+                issues: Color::rgb(0xdc322f),
+                language: Color::rgb(0x6c71c4),
+            },
+        }
+    }
+
+    /// Get Solarized Light theme
+    pub fn solarized_light() -> Self {
+        Self {
+            name: "Solarized Light".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0xfdf6e3),
+                foreground: Color::rgb(0x657b83),
+                border: Color::rgb(0xeee8d5),
+                border_focused: Color::rgb(0x268bd2),
+
+                success: Color::rgb(0x859900),
+                warning: Color::rgb(0xb58900),
+                error: Color::rgb(0xdc322f),
+                info: Color::rgb(0x2aa198),
+
+                title: Color::rgb(0x6c71c4),
+                subtitle: Color::rgb(0x586e75),
+                selected: Color::rgb(0x268bd2),
+                selected_bg: Color::rgb(0xeee8d5),
+                tab_active: Color::rgb(0xd33682),
+                tab_inactive: Color::rgb(0x93a1a1),
+
+                primary: Color::rgb(0x268bd2),
+                secondary: Color::rgb(0xd33682),
+                accent: Color::rgb(0xb58900),
+                muted: Color::rgb(0x93a1a1),
+
+                health_healthy: Color::rgb(0x859900),
+                health_moderate: Color::rgb(0xb58900),
+                health_warning: Color::rgb(0xcb4b16),
+                health_critical: Color::rgb(0xdc322f),
+
+                stars: Color::rgb(0xb58900),
+                forks: Color::rgb(0x2aa198),
+                issues: Color::rgb(0xdc322f),
+                language: Color::rgb(0x6c71c4),
+            },
+        }
+    }
+
+    /// Get One Dark theme
+    pub fn one_dark() -> Self {
+        Self {
+            name: "One Dark".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x282c34),
+                foreground: Color::rgb(0xabb2bf),
+                border: Color::rgb(0x3e4451),
+                border_focused: Color::rgb(0x61afef),
+
+                success: Color::rgb(0x98c379),
+                warning: Color::rgb(0xe5c07b),
+                error: Color::rgb(0xe06c75),
+                info: Color::rgb(0x56b6c2),
+
+                title: Color::rgb(0xc678dd),
+                subtitle: Color::rgb(0x5c6370),
+                selected: Color::rgb(0x61afef),
+                selected_bg: Color::rgb(0x3e4451),
+                tab_active: Color::rgb(0xc678dd),
+                tab_inactive: Color::rgb(0x5c6370),
+
+                primary: Color::rgb(0x61afef),
+                secondary: Color::rgb(0xc678dd),
+                accent: Color::rgb(0xe5c07b),
+                muted: Color::rgb(0x5c6370),
+
+                health_healthy: Color::rgb(0x98c379),
+                health_moderate: Color::rgb(0xe5c07b),
+                health_warning: Color::rgb(0xd19a66),
+                health_critical: Color::rgb(0xe06c75),
+
+                stars: Color::rgb(0xe5c07b),
+                forks: Color::rgb(0x56b6c2),
+                issues: Color::rgb(0xe06c75),
+                language: Color::rgb(0xc678dd),
+            },
+        }
+    }
+
+    /// Get Tokyo Night theme
+    pub fn tokyo_night() -> Self {
+        Self {
+            name: "Tokyo Night".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x1a1b26),
+                foreground: Color::rgb(0xa9b1d6),
+                border: Color::rgb(0x414868),
+                border_focused: Color::rgb(0x7aa2f7),
+
+                success: Color::rgb(0x9ece6a),
+                warning: Color::rgb(0xe0af68),
+                error: Color::rgb(0xf7768e),
+                info: Color::rgb(0x7dcfff),
+
+                title: Color::rgb(0xbb9af7),
+                subtitle: Color::rgb(0x565f89),
+                selected: Color::rgb(0x7aa2f7),
+                selected_bg: Color::rgb(0x24283b),
+                tab_active: Color::rgb(0xff9e64),
+                tab_inactive: Color::rgb(0x565f89),
+
+                primary: Color::rgb(0x7aa2f7),
+                secondary: Color::rgb(0xbb9af7),
+                accent: Color::rgb(0xe0af68),
+                muted: Color::rgb(0x565f89),
+
+                health_healthy: Color::rgb(0x9ece6a),
+                health_moderate: Color::rgb(0xe0af68),
+                health_warning: Color::rgb(0xff9e64),
+                health_critical: Color::rgb(0xf7768e),
+
+                stars: Color::rgb(0xe0af68),
+                forks: Color::rgb(0x7dcfff),
+                issues: Color::rgb(0xf7768e),
+                language: Color::rgb(0xbb9af7),
+            },
+        }
+    }
+
+    /// Get Monokai Pro theme
+    pub fn monokai() -> Self {
+        Self {
+            name: "Monokai Pro".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x2d2a2e),
+                foreground: Color::rgb(0xfcfcfa),
+                border: Color::rgb(0x403e41),
+                border_focused: Color::rgb(0xffd866),
+
+                success: Color::rgb(0xa9dc76),
+                warning: Color::rgb(0xffd866),
+                error: Color::rgb(0xff6188),
+                info: Color::rgb(0x78dce8),
+
+                title: Color::rgb(0xab9df2),
+                subtitle: Color::rgb(0x727072),
+                selected: Color::rgb(0xffd866),
+                selected_bg: Color::rgb(0x403e41),
+                tab_active: Color::rgb(0xff6188),
+                tab_inactive: Color::rgb(0x727072),
+
+                primary: Color::rgb(0x78dce8),
+                secondary: Color::rgb(0xab9df2),
+                accent: Color::rgb(0xffd866),
+                muted: Color::rgb(0x727072),
+
+                health_healthy: Color::rgb(0xa9dc76),
+                health_moderate: Color::rgb(0xffd866),
+                health_warning: Color::rgb(0xfc9867),
+                health_critical: Color::rgb(0xff6188),
+
+                stars: Color::rgb(0xffd866),
+                forks: Color::rgb(0x78dce8),
+                issues: Color::rgb(0xff6188),
+                language: Color::rgb(0xab9df2),
+            },
+        }
+    }
+
+    /// Get Catppuccin Macchiato theme
+    pub fn catppuccin_macchiato() -> Self {
+        Self {
+            name: "Catppuccin Macchiato".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x24273a),
+                foreground: Color::rgb(0xcad3f5),
+                border: Color::rgb(0x494d64),
+                border_focused: Color::rgb(0x8aadf4),
+
+                success: Color::rgb(0xa6da95),
+                warning: Color::rgb(0xeed49f),
+                error: Color::rgb(0xed8796),
+                info: Color::rgb(0x91d7e3),
+
+                title: Color::rgb(0xc6a0f6),
+                subtitle: Color::rgb(0xa5adcb),
+                selected: Color::rgb(0x8aadf4),
+                selected_bg: Color::rgb(0x363a4f),
+                tab_active: Color::rgb(0xf5bde6),
+                tab_inactive: Color::rgb(0x6e738d),
+
+                primary: Color::rgb(0x8aadf4),
+                secondary: Color::rgb(0xf5bde6),
+                accent: Color::rgb(0xeed49f),
+                muted: Color::rgb(0x6e738d),
+
+                health_healthy: Color::rgb(0xa6da95),
+                health_moderate: Color::rgb(0xeed49f),
+                health_warning: Color::rgb(0xf5a97f),
+                health_critical: Color::rgb(0xed8796),
+
+                stars: Color::rgb(0xeed49f),
+                forks: Color::rgb(0x8bd5ca),
+                issues: Color::rgb(0xed8796),
+                language: Color::rgb(0xc6a0f6),
+            },
+        }
+    }
+
+    /// Get Catppuccin Frappe theme
+    pub fn catppuccin_frappe() -> Self {
+        Self {
+            name: "Catppuccin Frappe".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x303446),
+                foreground: Color::rgb(0xc6d0f5),
+                border: Color::rgb(0x51576d),
+                border_focused: Color::rgb(0x8caaee),
+
+                success: Color::rgb(0xa6d189),
+                warning: Color::rgb(0xe5c890),
+                error: Color::rgb(0xe78284),
+                info: Color::rgb(0x99d1db),
+
+                title: Color::rgb(0xca9ee6),
+                subtitle: Color::rgb(0xa5adce),
+                selected: Color::rgb(0x8caaee),
+                selected_bg: Color::rgb(0x414559),
+                tab_active: Color::rgb(0xf4b8e4),
+                tab_inactive: Color::rgb(0x737994),
+
+                primary: Color::rgb(0x8caaee),
+                secondary: Color::rgb(0xf4b8e4),
+                accent: Color::rgb(0xe5c890),
+                muted: Color::rgb(0x737994),
+
+                health_healthy: Color::rgb(0xa6d189),
+                health_moderate: Color::rgb(0xe5c890),
+                health_warning: Color::rgb(0xef9f76),
+                health_critical: Color::rgb(0xe78284),
+
+                stars: Color::rgb(0xe5c890),
+                forks: Color::rgb(0x81c8be),
+                issues: Color::rgb(0xe78284),
+                language: Color::rgb(0xca9ee6),
+            },
+        }
+    }
+
+    /// Get Everforest Dark theme
+    pub fn everforest() -> Self {
+        Self {
+            name: "Everforest".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x2d353b),
+                foreground: Color::rgb(0xd3c6aa),
+                border: Color::rgb(0x475258),
+                border_focused: Color::rgb(0x83c092),
+
+                success: Color::rgb(0xa7c080),
+                warning: Color::rgb(0xdbbc7f),
+                error: Color::rgb(0xe67e80),
+                info: Color::rgb(0x7fbbb3),
+
+                title: Color::rgb(0xd699b6),
+                subtitle: Color::rgb(0x9da9a0),
+                selected: Color::rgb(0x83c092),
+                selected_bg: Color::rgb(0x3d484d),
+                tab_active: Color::rgb(0xe69875),
+                tab_inactive: Color::rgb(0x859289),
+
+                primary: Color::rgb(0x83c092),
+                secondary: Color::rgb(0xd699b6),
+                accent: Color::rgb(0xdbbc7f),
+                muted: Color::rgb(0x859289),
+
+                health_healthy: Color::rgb(0xa7c080),
+                health_moderate: Color::rgb(0xdbbc7f),
+                health_warning: Color::rgb(0xe69875),
+                health_critical: Color::rgb(0xe67e80),
+
+                stars: Color::rgb(0xdbbc7f),
+                forks: Color::rgb(0x7fbbb3),
+                issues: Color::rgb(0xe67e80),
+                language: Color::rgb(0xd699b6),
+            },
+        }
+    }
+
+    /// Get Rosé Pine theme
+    pub fn rose_pine() -> Self {
+        Self {
+            name: "Rosé Pine".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x191724),
+                foreground: Color::rgb(0xe0def4),
+                border: Color::rgb(0x26233a),
+                border_focused: Color::rgb(0x31748f),
+
+                success: Color::rgb(0x9ccfd8),
+                warning: Color::rgb(0xf6c177),
+                error: Color::rgb(0xeb6f92),
+                info: Color::rgb(0x31748f),
+
+                title: Color::rgb(0xc4a7e7),
+                subtitle: Color::rgb(0x908caa),
+                selected: Color::rgb(0x31748f),
+                selected_bg: Color::rgb(0x26233a),
+                tab_active: Color::rgb(0xebbcba),
+                tab_inactive: Color::rgb(0x6e6a86),
+
+                primary: Color::rgb(0x31748f),
+                secondary: Color::rgb(0xc4a7e7),
+                accent: Color::rgb(0xf6c177),
+                muted: Color::rgb(0x6e6a86),
+
+                health_healthy: Color::rgb(0x9ccfd8),
+                health_moderate: Color::rgb(0xf6c177),
+                health_warning: Color::rgb(0xebbcba),
+                health_critical: Color::rgb(0xeb6f92),
+
+                stars: Color::rgb(0xf6c177),
+                forks: Color::rgb(0x9ccfd8),
+                issues: Color::rgb(0xeb6f92),
+                language: Color::rgb(0xc4a7e7),
+            },
+        }
+    }
+
+    /// Get Kanagawa theme
+    pub fn kanagawa() -> Self {
+        Self {
+            name: "Kanagawa".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0x1f1f28),
+                foreground: Color::rgb(0xdcd7ba),
+                border: Color::rgb(0x2a2a37),
+                border_focused: Color::rgb(0x7e9cd8),
+
+                success: Color::rgb(0x98bb6c),
+                warning: Color::rgb(0xe6c384),
+                error: Color::rgb(0xc34043),
+                info: Color::rgb(0x7fb4ca),
+
+                title: Color::rgb(0x957fb8),
+                subtitle: Color::rgb(0x727169),
+                selected: Color::rgb(0x7e9cd8),
+                selected_bg: Color::rgb(0x2a2a37),
+                tab_active: Color::rgb(0xd27e99),
+                tab_inactive: Color::rgb(0x54546d),
+
+                primary: Color::rgb(0x7e9cd8),
+                secondary: Color::rgb(0x957fb8),
+                accent: Color::rgb(0xe6c384),
+                muted: Color::rgb(0x54546d),
+
+                health_healthy: Color::rgb(0x98bb6c),
+                health_moderate: Color::rgb(0xe6c384),
+                health_warning: Color::rgb(0xffa066),
+                health_critical: Color::rgb(0xc34043),
+
+                stars: Color::rgb(0xe6c384),
+                forks: Color::rgb(0x7fb4ca),
+                issues: Color::rgb(0xc34043),
+                language: Color::rgb(0x957fb8),
+            },
+        }
+    }
+
     /// Get all available themes
     pub fn all_themes() -> Vec<Theme> {
         vec![
@@ -279,6 +679,16 @@ impl Theme {
             Self::nord(),
             Self::dracula(),
             Self::gruvbox(),
+            Self::solarized_dark(),
+            Self::solarized_light(),
+            Self::one_dark(),
+            Self::tokyo_night(),
+            Self::monokai(),
+            Self::catppuccin_macchiato(),
+            Self::catppuccin_frappe(),
+            Self::everforest(),
+            Self::rose_pine(),
+            Self::kanagawa(),
         ]
     }
 

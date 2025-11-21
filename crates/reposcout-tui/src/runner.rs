@@ -519,6 +519,17 @@ where
                             continue;
                         }
 
+                        // Special handling when keybindings help is open
+                        if app.show_keybindings_help {
+                            match key.code {
+                                KeyCode::Esc | KeyCode::Char('?') => {
+                                    app.show_keybindings_help = false;
+                                }
+                                _ => {}
+                            }
+                            continue;
+                        }
+
                         // Special handling when trending options panel is open
                         if app.show_trending_options && app.search_mode == SearchMode::Trending {
                             match key.code {
@@ -1033,6 +1044,10 @@ where
                                     .position(|t| t.name == app.current_theme.name)
                                     .unwrap_or(0);
                             }
+                        }
+                        KeyCode::Char('?') => {
+                            // Toggle keybindings help
+                            app.show_keybindings_help = !app.show_keybindings_help;
                         }
                         KeyCode::Char('N') => {
                             if app.search_mode == SearchMode::Code {

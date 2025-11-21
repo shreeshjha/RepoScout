@@ -279,6 +279,8 @@ pub struct App {
     // Discovery state
     pub discovery_category: DiscoveryCategory,
     pub discovery_cursor: usize,
+    // Keybindings help popup
+    pub show_keybindings_help: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -370,6 +372,7 @@ impl App {
             portfolio_cursor: 0,
             discovery_category: DiscoveryCategory::NewAndNotable,
             discovery_cursor: 0,
+            show_keybindings_help: false,
         }
     }
 
