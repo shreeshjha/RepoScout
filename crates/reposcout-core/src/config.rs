@@ -5,7 +5,7 @@ use std::path::PathBuf;
 ///
 /// This gets loaded from config file, env vars, and CLI args.
 /// Priority: CLI > Env > File > Defaults (like a sensible person would do)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     pub platforms: PlatformConfig,
     pub cache: CacheConfig,
@@ -59,16 +59,6 @@ impl Config {
         };
 
         Ok(config_dir.join("config.toml"))
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            platforms: PlatformConfig::default(),
-            cache: CacheConfig::default(),
-            ui: UiConfig::default(),
-        }
     }
 }
 
@@ -135,19 +125,10 @@ impl Default for GitLabConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BitbucketConfig {
     pub username: Option<String>,
     pub app_password: Option<String>,
-}
-
-impl Default for BitbucketConfig {
-    fn default() -> Self {
-        Self {
-            username: None,
-            app_password: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,21 +166,29 @@ impl Default for CacheConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiConfig {
-    /// UI theme (dark/light)
+    /// UI theme name (Default Dark, Light, Nord, Dracula, Gruvbox Dark)
     #[serde(default = "default_theme")]
     pub theme: String,
 
     /// Enable mouse support in TUI
     #[serde(default = "default_mouse")]
     pub mouse_enabled: bool,
+
+    /// Enable portfolio/watchlist feature
+    #[serde(default = "default_portfolio_enabled")]
+    pub portfolio_enabled: bool,
 }
 
 fn default_theme() -> String {
-    "dark".to_string() // because who uses light theme in a terminal?
+    "Default Dark".to_string() // because who uses light theme in a terminal?
 }
 
 fn default_mouse() -> bool {
     true
+}
+
+fn default_portfolio_enabled() -> bool {
+    true // Enable portfolio feature by default
 }
 
 impl Default for UiConfig {
@@ -207,6 +196,7 @@ impl Default for UiConfig {
         Self {
             theme: default_theme(),
             mouse_enabled: default_mouse(),
+            portfolio_enabled: default_portfolio_enabled(),
         }
     }
 }
@@ -220,7 +210,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.cache.ttl_hours, 24);
         assert_eq!(config.cache.max_size_mb, 500);
-        assert_eq!(config.ui.theme, "dark");
+        assert_eq!(config.ui.theme, "Default Dark");
     }
 
     #[test]

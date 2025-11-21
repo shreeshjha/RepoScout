@@ -74,5 +74,6 @@ fn gitlab_to_repo(gl: GitLabProject) -> Repository {
         default_branch: gl.default_branch.unwrap_or_else(|| "main".to_string()),
         is_archived: false, // Would need additional API call
         is_private: gl.visibility != "public",
+        health: None,
     }
 }

@@ -1,12 +1,18 @@
 // TUI application state and event handling
-use reposcout_core::models::{Repository, CodeSearchResult};
-use reposcout_deps::DependencyInfo;
 use ratatui::widgets::ListState;
+use reposcout_cache::SearchHistoryEntry;
+use reposcout_core::models::{CodeSearchResult, Repository};
+use reposcout_deps::DependencyInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
-    Repository,  // Searching for repositories (default)
-    Code,        // Searching for code
+    Repository,    // Searching for repositories (default)
+    Code,          // Searching for code
+    Trending,      // Browsing trending repositories
+    Notifications, // Viewing GitHub notifications
+    Semantic,      // Semantic search with natural language
+    Portfolio,     // Viewing portfolio/watchlist
+    Discovery,     // Enhanced discovery (New & Notable, Hidden Gems, Topics, Awesome Lists)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,14 +22,25 @@ pub enum InputMode {
     Filtering,     // Navigating filters
     EditingFilter, // Actively typing in a filter field
     FuzzySearch,   // Fuzzy filtering current results
+    HistoryPopup,  // Browsing search history
+    Settings,      // Settings/token management popup
+    TokenInput,    // Entering API token
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
-    Stats,         // Show repository statistics
-    Readme,        // Show README content
-    Activity,      // Show repository activity/commits
-    Dependencies,  // Show dependency analysis
+    Stats,        // Show repository statistics
+    Readme,       // Show README content
+    Activity,     // Show repository activity/commits
+    Dependencies, // Show dependency analysis
+    Package,      // Show package manager info and install commands
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodePreviewMode {
+    Code,     // Show highlighted code with context
+    Raw,      // Show raw text
+    FileInfo, // Show file metadata and repository info
 }
 
 #[derive(Debug, Clone)]
@@ -83,23 +100,12 @@ impl SearchFilters {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CodeSearchFilters {
     pub language: Option<String>,
     pub repo: Option<String>,
     pub path: Option<String>,
     pub extension: Option<String>,
-}
-
-impl Default for CodeSearchFilters {
-    fn default() -> Self {
-        Self {
-            language: None,
-            repo: None,
-            path: None,
-            extension: None,
-        }
-    }
 }
 
 impl CodeSearchFilters {
@@ -134,6 +140,52 @@ impl CodeSearchFilters {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrendingPeriod {
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+impl TrendingPeriod {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TrendingPeriod::Daily => "Daily",
+            TrendingPeriod::Weekly => "Weekly",
+            TrendingPeriod::Monthly => "Monthly",
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            TrendingPeriod::Daily => TrendingPeriod::Weekly,
+            TrendingPeriod::Weekly => TrendingPeriod::Monthly,
+            TrendingPeriod::Monthly => TrendingPeriod::Daily,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TrendingFilters {
+    pub period: TrendingPeriod,
+    pub language: Option<String>,
+    pub min_stars: u32,
+    pub topic: Option<String>,
+    pub sort_by_velocity: bool,
+}
+
+impl Default for TrendingFilters {
+    fn default() -> Self {
+        Self {
+            period: TrendingPeriod::Weekly,
+            language: None,
+            min_stars: 100,
+            topic: None,
+            sort_by_velocity: false,
+        }
+    }
+}
+
 pub struct App {
     pub should_quit: bool,
     pub input_mode: InputMode,
@@ -144,6 +196,7 @@ pub struct App {
     pub scroll_offset: usize,
     pub loading: bool,
     pub error_message: Option<String>,
+    pub error_timestamp: Option<std::time::SystemTime>,
     pub filters: SearchFilters,
     pub show_filters: bool,
     pub filter_cursor: usize,
@@ -167,13 +220,71 @@ pub struct App {
     // Dependency analysis state
     pub dependencies_cache: std::collections::HashMap<String, Option<DependencyInfo>>,
     pub dependencies_loading: bool,
+    // Package manager integration
+    pub package_info_cache: std::collections::HashMap<String, Vec<reposcout_core::PackageInfo>>,
+    pub package_loading: bool,
     // Code search state
     pub code_results: Vec<CodeSearchResult>,
     pub code_filters: CodeSearchFilters,
     pub code_selected_index: usize,
     pub code_scroll: u16,
+    pub code_preview_mode: CodePreviewMode,
+    pub show_code_filters: bool,
+    pub code_filter_cursor: usize,
+    pub code_filter_edit_buffer: String,
+    pub code_match_index: usize, // Which match within a file to highlight
     // Full file content cache for code preview
     pub code_content_cache: std::collections::HashMap<String, String>,
+    // Platform status tracking
+    pub platform_status: PlatformStatus,
+    // Search history popup state
+    pub search_history: Vec<SearchHistoryEntry>,
+    pub history_selected_index: usize,
+    // Trending state
+    pub trending_filters: TrendingFilters,
+    pub show_trending_options: bool,
+    pub trending_option_cursor: usize,
+    // Settings/Token management state
+    pub show_settings: bool,
+    pub settings_cursor: usize,
+    pub token_input_buffer: String,
+    pub token_input_platform: String, // "github", "gitlab", or "bitbucket"
+    pub token_status_message: Option<String>,
+    // Notification state
+    pub notifications: Vec<reposcout_core::Notification>,
+    pub notifications_selected_index: usize,
+    pub notifications_loading: bool,
+    pub notifications_show_all: bool, // false = unread only, true = all
+    pub notifications_participating: bool, // filter to participating only
+    // Theme state
+    pub current_theme: reposcout_core::Theme,
+    pub show_theme_selector: bool,
+    pub theme_selector_index: usize,
+    // Portfolio/Watchlist state
+    pub portfolio_manager: reposcout_core::PortfolioManager,
+    pub selected_portfolio_id: Option<String>,
+    pub show_portfolio_manager: bool,
+    pub portfolio_cursor: usize,
+    // Discovery state
+    pub discovery_category: DiscoveryCategory,
+    pub discovery_cursor: usize,
+    // Keybindings help popup
+    pub show_keybindings_help: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscoveryCategory {
+    NewAndNotable, // Recently created repos gaining traction
+    HiddenGems,    // Quality repos with low stars
+    Topics,        // Browse by topic categories
+    AwesomeLists,  // Curated awesome-* collections
+}
+
+#[derive(Debug, Clone)]
+pub struct PlatformStatus {
+    pub github_configured: bool,
+    pub gitlab_configured: bool,
+    pub bitbucket_configured: bool,
 }
 
 impl App {
@@ -191,6 +302,7 @@ impl App {
             scroll_offset: 0,
             loading: false,
             error_message: None,
+            error_timestamp: None,
             filters: SearchFilters::default(),
             show_filters: false,
             filter_cursor: 0,
@@ -208,12 +320,57 @@ impl App {
             fuzzy_match_count: 0,
             dependencies_cache: std::collections::HashMap::new(),
             dependencies_loading: false,
+            package_info_cache: std::collections::HashMap::new(),
+            package_loading: false,
             code_results: Vec::new(),
             code_filters: CodeSearchFilters::default(),
             code_selected_index: 0,
             code_scroll: 0,
+            code_preview_mode: CodePreviewMode::Code,
+            show_code_filters: false,
+            code_filter_cursor: 0,
+            code_filter_edit_buffer: String::new(),
+            code_match_index: 0,
             code_content_cache: std::collections::HashMap::new(),
+            platform_status: PlatformStatus {
+                github_configured: true, // Always available (public repos don't need auth)
+                gitlab_configured: true, // Always available (public repos don't need auth)
+                bitbucket_configured: false,
+            },
+            search_history: Vec::new(),
+            history_selected_index: 0,
+            trending_filters: TrendingFilters::default(),
+            show_trending_options: false,
+            trending_option_cursor: 0,
+            show_settings: false,
+            settings_cursor: 0,
+            token_input_buffer: String::new(),
+            token_input_platform: String::new(),
+            token_status_message: None,
+            notifications: Vec::new(),
+            notifications_selected_index: 0,
+            notifications_loading: false,
+            notifications_show_all: false,
+            notifications_participating: true,
+            current_theme: reposcout_core::Theme::default(),
+            show_theme_selector: false,
+            theme_selector_index: 0,
+            portfolio_manager: reposcout_core::PortfolioManager::new(),
+            selected_portfolio_id: None,
+            show_portfolio_manager: false,
+            portfolio_cursor: 0,
+            discovery_category: DiscoveryCategory::NewAndNotable,
+            discovery_cursor: 0,
+            show_keybindings_help: false,
         }
+    }
+
+    pub fn set_platform_status(&mut self, github: bool, gitlab: bool, bitbucket: bool) {
+        self.platform_status = PlatformStatus {
+            github_configured: github,
+            gitlab_configured: gitlab,
+            bitbucket_configured: bitbucket,
+        };
     }
 
     /// Enter fuzzy search mode
@@ -240,8 +397,8 @@ impl App {
 
     /// Apply fuzzy filter to results
     pub fn apply_fuzzy_filter(&mut self) {
-        use fuzzy_matcher::FuzzyMatcher;
         use fuzzy_matcher::skim::SkimMatcherV2;
+        use fuzzy_matcher::FuzzyMatcher;
 
         if self.fuzzy_input.is_empty() {
             // No filter, show all results
@@ -289,7 +446,8 @@ impl App {
     /// Check if current repository is bookmarked
     pub fn is_current_bookmarked(&self) -> bool {
         if let Some(repo) = self.selected_repository() {
-            let key = Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
+            let key =
+                Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
             self.bookmarked.contains(&key)
         } else {
             false
@@ -299,7 +457,8 @@ impl App {
     /// Add/remove current repository from bookmarks
     pub fn toggle_current_bookmark(&mut self) {
         if let Some(repo) = self.selected_repository() {
-            let key = Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
+            let key =
+                Self::bookmark_key(&repo.platform.to_string().to_lowercase(), &repo.full_name);
             if self.bookmarked.contains(&key) {
                 self.bookmarked.remove(&key);
             } else {
@@ -318,7 +477,8 @@ impl App {
             PreviewMode::Stats => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Dependencies,
-            PreviewMode::Dependencies => PreviewMode::Stats,
+            PreviewMode::Dependencies => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Stats,
         };
     }
 
@@ -327,14 +487,21 @@ impl App {
             PreviewMode::Stats => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Dependencies,
-            PreviewMode::Dependencies => PreviewMode::Stats,
+            PreviewMode::Dependencies => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Stats,
         };
         self.reset_readme_scroll();
+
+        // Auto-detect package info when switching to Package tab
+        if self.preview_mode == PreviewMode::Package && self.get_cached_package_info().is_none() {
+            self.detect_package_info();
+        }
     }
 
     pub fn previous_preview_tab(&mut self) {
         self.preview_mode = match self.preview_mode {
-            PreviewMode::Stats => PreviewMode::Dependencies,
+            PreviewMode::Stats => PreviewMode::Package,
+            PreviewMode::Package => PreviewMode::Dependencies,
             PreviewMode::Dependencies => PreviewMode::Activity,
             PreviewMode::Activity => PreviewMode::Readme,
             PreviewMode::Readme => PreviewMode::Stats,
@@ -421,8 +588,16 @@ impl App {
         // Load current filter value into edit buffer
         self.filter_edit_buffer = match self.filter_cursor {
             0 => self.filters.language.clone().unwrap_or_default(),
-            1 => self.filters.min_stars.map(|s| s.to_string()).unwrap_or_default(),
-            2 => self.filters.max_stars.map(|s| s.to_string()).unwrap_or_default(),
+            1 => self
+                .filters
+                .min_stars
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            2 => self
+                .filters
+                .max_stars
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
             3 => self.filters.pushed.clone().unwrap_or_default(),
             4 => self.filters.sort_by.clone(),
             _ => String::new(),
@@ -530,6 +705,30 @@ impl App {
 
     pub fn clear_error(&mut self) {
         self.error_message = None;
+        self.error_timestamp = None;
+    }
+
+    /// Set a temporary error message that will auto-clear after 5 seconds
+    pub fn set_temp_error(&mut self, message: String) {
+        self.error_message = Some(message);
+        self.error_timestamp = Some(std::time::SystemTime::now());
+    }
+
+    /// Set a permanent error message that won't auto-clear
+    pub fn set_error(&mut self, message: String) {
+        self.error_message = Some(message);
+        self.error_timestamp = None;
+    }
+
+    /// Clear error if it has been shown for more than 5 seconds
+    pub fn clear_expired_error(&mut self) {
+        if let Some(timestamp) = self.error_timestamp {
+            if let Ok(elapsed) = timestamp.elapsed() {
+                if elapsed.as_secs() >= 5 {
+                    self.clear_error();
+                }
+            }
+        }
     }
 
     pub fn get_search_query(&self) -> String {
@@ -560,19 +759,134 @@ impl App {
         self.dependencies_loading = false;
     }
 
-    /// Toggle between repository and code search mode
+    /// Get cached package info for current repository
+    pub fn get_cached_package_info(&self) -> Option<&Vec<reposcout_core::PackageInfo>> {
+        if let Some(repo) = self.selected_repository() {
+            self.package_info_cache.get(&repo.full_name)
+        } else {
+            None
+        }
+    }
+
+    /// Cache package info for a repository
+    pub fn cache_package_info(
+        &mut self,
+        repo_name: String,
+        packages: Vec<reposcout_core::PackageInfo>,
+    ) {
+        self.package_info_cache.insert(repo_name, packages);
+    }
+
+    /// Start package loading
+    pub fn start_package_loading(&mut self) {
+        self.package_loading = true;
+    }
+
+    /// Stop package loading
+    pub fn stop_package_loading(&mut self) {
+        self.package_loading = false;
+    }
+
+    /// Detect and cache package info for current repository
+    pub fn detect_package_info(&mut self) {
+        if let Some(repo) = self.selected_repository() {
+            let managers = reposcout_core::PackageDetector::detect(repo);
+
+            let mut packages = Vec::new();
+            for manager in managers {
+                if let Some(pkg_name) =
+                    reposcout_core::PackageDetector::extract_package_name(repo, manager)
+                {
+                    let pkg_info = reposcout_core::PackageInfo::new(manager, pkg_name);
+                    packages.push(pkg_info);
+                }
+            }
+
+            if !packages.is_empty() {
+                self.cache_package_info(repo.full_name.clone(), packages);
+            }
+        }
+    }
+
+    /// Copy package install command to clipboard
+    pub fn copy_package_install_command(&mut self) -> Result<(), String> {
+        if let Some(packages) = self.get_cached_package_info() {
+            if let Some(first_pkg) = packages.first() {
+                match arboard::Clipboard::new() {
+                    Ok(mut clipboard) => {
+                        if let Err(e) = clipboard.set_text(&first_pkg.install_command) {
+                            return Err(format!("Failed to copy to clipboard: {}", e));
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(format!("Failed to access clipboard: {}", e)),
+                }
+            } else {
+                Err("No package detected".to_string())
+            }
+        } else {
+            Err("No package info available".to_string())
+        }
+    }
+
+    /// Open package registry in browser
+    pub fn open_package_registry(&self) -> Result<(), String> {
+        if let Some(packages) = self.get_cached_package_info() {
+            if let Some(first_pkg) = packages.first() {
+                if let Err(e) = open::that(&first_pkg.registry_url) {
+                    return Err(format!("Failed to open browser: {}", e));
+                }
+                Ok(())
+            } else {
+                Err("No package detected".to_string())
+            }
+        } else {
+            Err("No package info available".to_string())
+        }
+    }
+
+    /// Toggle between repository, code, trending, notifications, semantic, and portfolio modes
     pub fn toggle_search_mode(&mut self) {
         self.search_mode = match self.search_mode {
             SearchMode::Repository => SearchMode::Code,
-            SearchMode::Code => SearchMode::Repository,
+            SearchMode::Code => SearchMode::Trending,
+            SearchMode::Trending => SearchMode::Notifications,
+            SearchMode::Notifications => SearchMode::Semantic,
+            SearchMode::Semantic => SearchMode::Portfolio,
+            SearchMode::Portfolio => SearchMode::Discovery,
+            SearchMode::Discovery => SearchMode::Repository,
         };
         // Clear results and errors when switching modes
         self.code_results.clear();
         self.results.clear();
+        self.notifications.clear();
         self.code_selected_index = 0;
         self.selected_index = 0;
+        self.notifications_selected_index = 0;
         self.error_message = None;
         self.loading = false;
+    }
+
+    /// Cycle through discovery categories
+    pub fn next_discovery_category(&mut self) {
+        self.discovery_category = match self.discovery_category {
+            DiscoveryCategory::NewAndNotable => DiscoveryCategory::HiddenGems,
+            DiscoveryCategory::HiddenGems => DiscoveryCategory::Topics,
+            DiscoveryCategory::Topics => DiscoveryCategory::AwesomeLists,
+            DiscoveryCategory::AwesomeLists => DiscoveryCategory::NewAndNotable,
+        };
+        self.discovery_cursor = 0;
+    }
+
+    /// Previous discovery category
+    pub fn previous_discovery_category(&mut self) {
+        self.discovery_category = match self.discovery_category {
+            DiscoveryCategory::NewAndNotable => DiscoveryCategory::AwesomeLists,
+            DiscoveryCategory::HiddenGems => DiscoveryCategory::NewAndNotable,
+            DiscoveryCategory::Topics => DiscoveryCategory::HiddenGems,
+            DiscoveryCategory::AwesomeLists => DiscoveryCategory::Topics,
+        };
+        self.discovery_cursor = 0;
     }
 
     /// Get the currently selected code search result
@@ -583,7 +897,8 @@ impl App {
     /// Navigate to next code search result
     pub fn next_code_result(&mut self) {
         if !self.code_results.is_empty() {
-            self.code_selected_index = (self.code_selected_index + 1).min(self.code_results.len() - 1);
+            self.code_selected_index =
+                (self.code_selected_index + 1).min(self.code_results.len() - 1);
         }
     }
 
@@ -618,6 +933,393 @@ impl App {
     /// Get code search query with filters
     pub fn get_code_search_query(&self) -> String {
         self.code_filters.build_query(&self.search_input)
+    }
+
+    /// Toggle code filter panel visibility
+    pub fn toggle_code_filters(&mut self) {
+        self.show_code_filters = !self.show_code_filters;
+        if self.show_code_filters {
+            self.code_filter_cursor = 0;
+        }
+    }
+
+    /// Navigate to next code filter field
+    pub fn next_code_filter(&mut self) {
+        self.code_filter_cursor = (self.code_filter_cursor + 1).min(3); // 4 filter fields
+    }
+
+    /// Navigate to previous code filter field
+    pub fn previous_code_filter(&mut self) {
+        if self.code_filter_cursor > 0 {
+            self.code_filter_cursor -= 1;
+        }
+    }
+
+    /// Clear current code filter
+    pub fn clear_current_code_filter(&mut self) {
+        match self.code_filter_cursor {
+            0 => self.code_filters.language = None,
+            1 => self.code_filters.repo = None,
+            2 => self.code_filters.path = None,
+            3 => self.code_filters.extension = None,
+            _ => {}
+        }
+    }
+
+    /// Toggle code preview mode (Code/Raw/FileInfo)
+    pub fn toggle_code_preview_mode(&mut self) {
+        self.code_preview_mode = match self.code_preview_mode {
+            CodePreviewMode::Code => CodePreviewMode::Raw,
+            CodePreviewMode::Raw => CodePreviewMode::FileInfo,
+            CodePreviewMode::FileInfo => CodePreviewMode::Code,
+        };
+        // Reset scroll when switching modes
+        self.code_scroll = 0;
+    }
+
+    /// Navigate to next match within the current code result
+    pub fn next_code_match(&mut self) {
+        if let Some(result) = self.selected_code_result() {
+            let max_matches = result.matches.len().saturating_sub(1);
+            self.code_match_index = (self.code_match_index + 1).min(max_matches);
+        }
+    }
+
+    /// Navigate to previous match within the current code result
+    pub fn previous_code_match(&mut self) {
+        if self.code_match_index > 0 {
+            self.code_match_index -= 1;
+        }
+    }
+
+    /// Reset match index when navigating to a different result
+    pub fn reset_code_match_index(&mut self) {
+        self.code_match_index = 0;
+    }
+
+    // ===== Search History Methods =====
+
+    /// Enter history popup mode
+    pub fn enter_history_popup(&mut self) {
+        self.input_mode = InputMode::HistoryPopup;
+        self.history_selected_index = 0;
+    }
+
+    /// Exit history popup mode
+    pub fn exit_history_popup(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.search_history.clear();
+        self.history_selected_index = 0;
+    }
+
+    /// Load search history for display
+    pub fn load_search_history(&mut self, history: Vec<SearchHistoryEntry>) {
+        self.search_history = history;
+        self.history_selected_index = 0;
+    }
+
+    /// Navigate to next history entry
+    pub fn next_history_entry(&mut self) {
+        if !self.search_history.is_empty() {
+            self.history_selected_index =
+                (self.history_selected_index + 1).min(self.search_history.len() - 1);
+        }
+    }
+
+    /// Navigate to previous history entry
+    pub fn previous_history_entry(&mut self) {
+        if self.history_selected_index > 0 {
+            self.history_selected_index -= 1;
+        }
+    }
+
+    /// Get the currently selected history entry
+    pub fn selected_history_entry(&self) -> Option<&SearchHistoryEntry> {
+        self.search_history.get(self.history_selected_index)
+    }
+
+    /// Apply selected history entry to search
+    pub fn apply_selected_history(&mut self) -> Option<String> {
+        // Clone the query first to avoid borrowing issues
+        let query = self.selected_history_entry().map(|e| e.query.clone())?;
+        // Set search input to the query from history
+        self.search_input = query.clone();
+        // Return the query so caller can trigger a search
+        Some(query)
+    }
+
+    // ===== Trending Methods =====
+
+    /// Toggle trending options panel
+    pub fn toggle_trending_options(&mut self) {
+        self.show_trending_options = !self.show_trending_options;
+        if self.show_trending_options {
+            self.trending_option_cursor = 0;
+        }
+    }
+
+    /// Navigate trending options
+    pub fn next_trending_option(&mut self) {
+        // Options: 0=Period, 1=Language, 2=MinStars, 3=Topic, 4=SortByVelocity
+        self.trending_option_cursor = (self.trending_option_cursor + 1).min(4);
+    }
+
+    pub fn previous_trending_option(&mut self) {
+        if self.trending_option_cursor > 0 {
+            self.trending_option_cursor -= 1;
+        }
+    }
+
+    /// Toggle trending period
+    pub fn toggle_trending_period(&mut self) {
+        self.trending_filters.period = self.trending_filters.period.next();
+    }
+
+    /// Toggle sort by velocity
+    pub fn toggle_trending_velocity(&mut self) {
+        self.trending_filters.sort_by_velocity = !self.trending_filters.sort_by_velocity;
+    }
+
+    /// Adjust min stars for trending
+    pub fn increase_trending_min_stars(&mut self) {
+        self.trending_filters.min_stars = (self.trending_filters.min_stars + 50).min(10000);
+    }
+
+    pub fn decrease_trending_min_stars(&mut self) {
+        self.trending_filters.min_stars = self.trending_filters.min_stars.saturating_sub(50);
+    }
+
+    // Settings/Token management methods
+
+    /// Toggle settings popup
+    pub fn toggle_settings(&mut self) {
+        self.show_settings = !self.show_settings;
+        if self.show_settings {
+            self.input_mode = InputMode::Settings;
+            self.settings_cursor = 0;
+            self.token_status_message = None;
+        } else {
+            self.input_mode = InputMode::Normal;
+        }
+    }
+
+    /// Open token input for a platform
+    pub fn start_token_input(&mut self, platform: &str) {
+        self.token_input_platform = platform.to_string();
+        self.token_input_buffer.clear();
+        self.input_mode = InputMode::TokenInput;
+        self.token_status_message = None;
+    }
+
+    /// Save the entered token
+    pub fn save_token(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        use reposcout_core::TokenStore;
+
+        if self.token_input_buffer.is_empty() {
+            self.token_status_message = Some("Token cannot be empty".to_string());
+            return Ok(());
+        }
+
+        // Load or create token store
+        let mut store = TokenStore::load().unwrap_or_else(|_| TokenStore::new());
+
+        // Store token with 30 days validity
+        store.set_token(&self.token_input_platform, &self.token_input_buffer, 30);
+
+        // Save to disk
+        store.save()?;
+
+        self.token_status_message = Some(format!(
+            "{} token saved successfully! (Valid for 30 days)",
+            self.token_input_platform.to_uppercase()
+        ));
+
+        // Clear input
+        self.token_input_buffer.clear();
+        self.input_mode = InputMode::Settings;
+
+        Ok(())
+    }
+
+    /// Cancel token input
+    pub fn cancel_token_input(&mut self) {
+        self.token_input_buffer.clear();
+        self.token_input_platform.clear();
+        self.input_mode = InputMode::Settings;
+    }
+
+    /// Navigate settings options
+    pub fn next_setting(&mut self) {
+        self.settings_cursor = (self.settings_cursor + 1) % 4; // 4 options: GitHub, GitLab, Bitbucket, Close
+    }
+
+    pub fn previous_setting(&mut self) {
+        if self.settings_cursor == 0 {
+            self.settings_cursor = 3;
+        } else {
+            self.settings_cursor -= 1;
+        }
+    }
+
+    /// Get current token status for a platform
+    pub fn get_token_status(&self, platform: &str) -> String {
+        use reposcout_core::TokenStore;
+
+        match TokenStore::load() {
+            Ok(store) => {
+                if let Some(days) = store.get_token_days_remaining(platform) {
+                    if days == 0 {
+                        "Token expired".to_string()
+                    } else if days == 1 {
+                        "Expires in 1 day".to_string()
+                    } else {
+                        format!("Expires in {} days", days)
+                    }
+                } else {
+                    "No token set".to_string()
+                }
+            }
+            Err(_) => "No token set".to_string(),
+        }
+    }
+
+    /// Navigate to next notification
+    pub fn next_notification(&mut self) {
+        if !self.notifications.is_empty() {
+            self.notifications_selected_index =
+                (self.notifications_selected_index + 1) % self.notifications.len();
+        }
+    }
+
+    /// Navigate to previous notification
+    pub fn previous_notification(&mut self) {
+        if !self.notifications.is_empty() {
+            if self.notifications_selected_index > 0 {
+                self.notifications_selected_index -= 1;
+            } else {
+                self.notifications_selected_index = self.notifications.len() - 1;
+            }
+        }
+    }
+
+    /// Toggle showing all vs unread-only notifications
+    pub fn toggle_notification_filter(&mut self) {
+        self.notifications_show_all = !self.notifications_show_all;
+    }
+
+    /// Toggle participating filter
+    pub fn toggle_participating_filter(&mut self) {
+        self.notifications_participating = !self.notifications_participating;
+    }
+
+    /// Get currently selected notification
+    pub fn get_selected_notification(&self) -> Option<&reposcout_core::Notification> {
+        self.notifications.get(self.notifications_selected_index)
+    }
+
+    // Theme management methods
+
+    /// Change to a different theme
+    pub fn set_theme(&mut self, theme: reposcout_core::Theme) {
+        self.current_theme = theme;
+    }
+
+    /// Get the current theme
+    pub fn get_theme(&self) -> &reposcout_core::Theme {
+        &self.current_theme
+    }
+
+    /// Cycle to next theme
+    pub fn next_theme(&mut self) {
+        let themes = reposcout_core::Theme::all_themes();
+        if let Some(current_idx) = themes
+            .iter()
+            .position(|t| t.name == self.current_theme.name)
+        {
+            let next_idx = (current_idx + 1) % themes.len();
+            self.current_theme = themes[next_idx].clone();
+        }
+    }
+
+    /// Cycle to previous theme
+    pub fn previous_theme(&mut self) {
+        let themes = reposcout_core::Theme::all_themes();
+        if let Some(current_idx) = themes
+            .iter()
+            .position(|t| t.name == self.current_theme.name)
+        {
+            let prev_idx = if current_idx == 0 {
+                themes.len() - 1
+            } else {
+                current_idx - 1
+            };
+            self.current_theme = themes[prev_idx].clone();
+        }
+    }
+
+    // Portfolio/Watchlist management methods
+
+    /// Add current repository to a portfolio
+    pub fn add_to_portfolio(
+        &mut self,
+        portfolio_id: &str,
+        notes: Option<String>,
+        tags: Vec<String>,
+    ) -> Result<(), String> {
+        if let Some(repo) = self.selected_repository().cloned() {
+            self.portfolio_manager
+                .add_repo_to_portfolio(portfolio_id, repo, notes, tags)
+                .map_err(|e| e.to_string())
+        } else {
+            Err("No repository selected".to_string())
+        }
+    }
+
+    /// Remove current repository from a portfolio
+    pub fn remove_from_portfolio(&mut self, portfolio_id: &str) -> Result<(), String> {
+        if let Some(repo) = self.selected_repository() {
+            let repo_name = repo.full_name.clone();
+            self.portfolio_manager
+                .remove_repo_from_portfolio(portfolio_id, &repo_name)
+                .map_err(|e| e.to_string())
+        } else {
+            Err("No repository selected".to_string())
+        }
+    }
+
+    /// Create a new portfolio
+    pub fn create_portfolio(
+        &mut self,
+        name: String,
+        description: Option<String>,
+        color: reposcout_core::PortfolioColor,
+        icon: reposcout_core::PortfolioIcon,
+    ) -> reposcout_core::Portfolio {
+        self.portfolio_manager
+            .create_portfolio(name, description, color, icon)
+    }
+
+    /// Get all portfolios
+    pub fn get_portfolios(&self) -> Vec<&reposcout_core::Portfolio> {
+        self.portfolio_manager.list_portfolios()
+    }
+
+    /// Get selected portfolio
+    pub fn get_selected_portfolio(&self) -> Option<&reposcout_core::Portfolio> {
+        if let Some(id) = &self.selected_portfolio_id {
+            self.portfolio_manager.get_portfolio(id)
+        } else {
+            None
+        }
+    }
+
+    /// Check if current repo is in any portfolios
+    pub fn current_repo_portfolios(&self) -> Vec<&reposcout_core::Portfolio> {
+        if let Some(repo) = self.selected_repository() {
+            self.portfolio_manager.find_repo_portfolios(&repo.full_name)
+        } else {
+            Vec::new()
+        }
     }
 }
 

@@ -43,10 +43,8 @@ impl SearchEngine {
         // Flatten all results, ignoring errors for now
         // TODO: Better error handling - maybe collect errors separately?
         let mut repos = Vec::new();
-        for result in results {
-            if let Ok(mut r) = result {
-                repos.append(&mut r);
-            }
+        for mut r in results.into_iter().flatten() {
+            repos.append(&mut r);
         }
 
         Ok(repos)

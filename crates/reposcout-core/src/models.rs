@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::health::HealthMetrics;
+
 /// Repository model - the star of the show
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Repository {
@@ -23,6 +25,35 @@ pub struct Repository {
     pub default_branch: String,
     pub is_archived: bool,
     pub is_private: bool,
+    /// Health metrics (calculated on-demand)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<HealthMetrics>,
+}
+
+impl Repository {
+    /// Calculate and set health metrics for this repository
+    pub fn calculate_health(&mut self) {
+        self.health = Some(crate::health::HealthCalculator::calculate(
+            self.stars,
+            self.forks,
+            self.watchers,
+            self.open_issues,
+            self.created_at,
+            self.updated_at,
+            self.pushed_at,
+            self.is_archived,
+            self.description.is_some(),
+            self.topics.len(),
+        ));
+    }
+
+    /// Get health metrics, calculating if not already present
+    pub fn get_health(&mut self) -> &HealthMetrics {
+        if self.health.is_none() {
+            self.calculate_health();
+        }
+        self.health.as_ref().unwrap()
+    }
 }
 
 /// Which platform this repo lives on
