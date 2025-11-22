@@ -206,7 +206,7 @@ fn default_enabled() -> bool {
 }
 
 fn default_model() -> String {
-    "sentence-transformers/all-MiniLM-L6-v2".to_string()
+    "BAAI/bge-small-en-v1.5".to_string()
 }
 
 fn default_auto_build() -> bool {
@@ -218,7 +218,7 @@ fn default_semantic_weight() -> f32 {
 }
 
 fn default_min_similarity() -> f32 {
-    0.3
+    0.5
 }
 
 fn default_max_results() -> usize {

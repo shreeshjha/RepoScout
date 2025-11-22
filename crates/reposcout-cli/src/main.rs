@@ -1562,16 +1562,8 @@ async fn handle_semantic_search(
 
         let keyword_results = keyword_engine.search(query).await?;
 
-        // Combine with semantic search
-        let keyword_pairs: Vec<(reposcout_core::models::Repository, f32)> = keyword_results
-            .into_iter()
-            .enumerate()
-            .map(|(i, repo)| {
-                // Assign decreasing scores based on position
-                let score = 1.0 - (i as f32 / 100.0).min(0.9);
-                (repo, score)
-            })
-            .collect();
+        // Score keyword results using BM25
+        let keyword_pairs = reposcout_semantic::score_keyword_results(keyword_results, query);
 
         engine.hybrid_search(query, keyword_pairs, limit).await?
     } else {
