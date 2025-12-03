@@ -69,6 +69,7 @@ enum Commands {
     /// Search for code within repositories
     Code {
         /// Code search query (e.g., "function auth", "class:User")
+        /// With --semantic: use natural language (e.g., "parse command line arguments")
         query: String,
 
         /// Number of results to show
@@ -90,6 +91,14 @@ enum Commands {
         /// File extension filter (e.g., "rs", "py")
         #[arg(short = 'e', long)]
         extension: Option<String>,
+
+        /// Use semantic search (natural language queries)
+        #[arg(long)]
+        semantic: bool,
+
+        /// Semantic weight for hybrid ranking (0.0-1.0, default: 0.7)
+        #[arg(long, default_value = "0.7")]
+        semantic_weight: f32,
     },
     /// Show repository details
     Show {
@@ -346,6 +355,8 @@ async fn main() -> anyhow::Result<()> {
             repo,
             path,
             extension,
+            semantic,
+            semantic_weight,
         }) => {
             search_code(
                 &query,
@@ -354,6 +365,8 @@ async fn main() -> anyhow::Result<()> {
                 repo,
                 path,
                 extension,
+                semantic,
+                semantic_weight,
                 cli.github_token,
                 cli.gitlab_token,
                 cli.bitbucket_username,
@@ -1109,6 +1122,8 @@ async fn search_code(
     repo: Option<String>,
     path: Option<String>,
     extension: Option<String>,
+    semantic: bool,
+    semantic_weight: f32,
     github_token: Option<String>,
     gitlab_token: Option<String>,
     bitbucket_username: Option<String>,
@@ -1117,8 +1132,25 @@ async fn search_code(
     use reposcout_api::{GitHubClient, GitLabClient};
     use reposcout_core::models::{CodeMatch, CodeSearchResult, Platform};
 
+    // Determine search strategy
+    let (search_query, api_limit) = if semantic {
+        // For semantic search, extract keywords and fetch more results for re-ranking
+        use reposcout_semantic::extract_code_keywords;
+
+        let keywords = extract_code_keywords(query);
+        println!("🔍 Semantic search mode");
+        println!("   Natural language query: \"{}\"", query);
+        println!("   Extracted keywords: \"{}\"", keywords);
+        println!();
+
+        // Fetch more results (3-5x) for better re-ranking
+        (keywords, limit * 4)
+    } else {
+        (query.to_string(), limit)
+    };
+
     // Build enhanced query with filters
-    let mut search_query = query.to_string();
+    let mut search_query = search_query;
 
     if let Some(lang) = language {
         search_query.push_str(&format!(" language:{}", lang));
@@ -1143,7 +1175,7 @@ async fn search_code(
     // Search GitHub
     if let Some(ref token) = github_token {
         let github_client = GitHubClient::new(Some(token.clone()));
-        match github_client.search_code(&search_query, limit as u32).await {
+        match github_client.search_code(&search_query, api_limit as u32).await {
             Ok(items) => {
                 for item in items {
                     // Convert GitHub results to our unified format
@@ -1177,11 +1209,11 @@ async fn search_code(
                         platform: Platform::GitHub,
                         repository: item.repository.full_name.clone(),
                         file_path: item.path.clone(),
-                        language: None, // Code search API doesn't return language
+                        language: item.repository.language.clone(),
                         file_url: item.html_url.clone(),
                         repository_url: item.repository.html_url.clone(),
                         matches,
-                        repository_stars: 0, // Code search API doesn't return star count
+                        repository_stars: item.repository.stargazers_count,
                     });
                 }
                 tracing::info!("Found {} results from GitHub", all_results.len());
@@ -1212,7 +1244,7 @@ async fn search_code(
     // Search GitLab
     if let Some(ref token) = gitlab_token {
         let gitlab_client = GitLabClient::new(Some(token.clone()));
-        match gitlab_client.search_code(query, limit as u32).await {
+        match gitlab_client.search_code(&search_query, api_limit as u32).await {
             Ok(items) => {
                 // We need to fetch project details for each result
                 // For now, create basic results
@@ -1282,17 +1314,51 @@ async fn search_code(
         return Ok(());
     }
 
-    // Sort by repository stars
-    all_results.sort_by(|a, b| b.repository_stars.cmp(&a.repository_stars));
+    // Apply semantic re-ranking if enabled
+    let final_results: Vec<(CodeSearchResult, Option<f32>)> = if semantic {
+        use reposcout_semantic::CodeReranker;
 
-    println!("\n🔍 Found {} code matches:\n", all_results.len());
+        println!("🧠 Re-ranking results using semantic similarity...\n");
 
-    for (i, result) in all_results.iter().take(limit).enumerate() {
+        // Initialize semantic re-ranker
+        let reranker = CodeReranker::new("BAAI/bge-small-en-v1.5".to_string());
+        reranker.initialize().await?;
+
+        // Re-rank results
+        let reranked = reranker
+            .rerank_hybrid(query, all_results, limit, semantic_weight)
+            .await?;
+
+        reranked
+            .into_iter()
+            .map(|(result, semantic_score, _hybrid_score)| (result, Some(semantic_score)))
+            .collect()
+    } else {
+        // Sort by repository stars (traditional ranking)
+        all_results.sort_by(|a, b| b.repository_stars.cmp(&a.repository_stars));
+        all_results
+            .into_iter()
+            .take(limit)
+            .map(|result| (result, None))
+            .collect()
+    };
+
+    println!("\n🔍 Found {} code matches:\n", final_results.len());
+
+    for (i, (result, semantic_score)) in final_results.iter().enumerate() {
         println!("{}. {} ({})", i + 1, result.file_path, result.repository);
-        println!(
-            "   Platform: {} | ⭐ {}",
-            result.platform, result.repository_stars
-        );
+
+        let mut info_parts = vec![
+            format!("Platform: {}", result.platform),
+            format!("⭐ {}", result.repository_stars),
+        ];
+
+        if let Some(score) = semantic_score {
+            info_parts.push(format!("Similarity: {:.2}", score));
+        }
+
+        println!("   {}", info_parts.join(" | "));
+
         if let Some(lang) = &result.language {
             println!("   Language: {}", lang);
         }
