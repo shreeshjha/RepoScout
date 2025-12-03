@@ -290,7 +290,7 @@ fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                "(↑↓: navigate | Enter: edit | Del: clear | F: close)",
+                "(↑↓: navigate | Enter: edit | Del: clear | S: semantic | F: close)",
                 Style::default().fg(Color::DarkGray),
             ),
         ]),
@@ -309,7 +309,13 @@ fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::Cyan)
         };
 
-        let value_display = if value.is_empty() { "<not set>" } else { value };
+        let value_display = if is_editing {
+            &app.code_filter_edit_buffer
+        } else if value.is_empty() {
+            "<not set>"
+        } else {
+            value
+        };
         let value_style = if is_editing {
             Style::default().fg(Color::Black).bg(Color::Yellow)
         } else if is_active {
@@ -328,6 +334,37 @@ fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled(cursor, Style::default().fg(Color::Yellow)),
             Span::styled(format!("{:12} ", label), label_style),
             Span::styled(value_display, value_style),
+        ]));
+    }
+
+    // Add semantic mode indicator
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Mode: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            if app.code_filters.semantic {
+                "🧠 Semantic (natural language)"
+            } else {
+                "🔍 Exact (text matching)"
+            },
+            if app.code_filters.semantic {
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            },
+        ),
+    ]));
+
+    if app.code_filters.semantic {
+        lines.push(Line::from(vec![
+            Span::styled("  Weight: ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("{:.1}%", app.code_filters.semantic_weight * 100.0),
+                Style::default().fg(Color::Green),
+            ),
+            Span::styled(" semantic", Style::default().fg(Color::DarkGray)),
         ]));
     }
 
