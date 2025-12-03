@@ -210,6 +210,47 @@ impl EmbeddingGenerator {
         // Generate embedding
         self.embed_text(&processed_query).await
     }
+
+    /// Generate embedding for a code snippet
+    pub async fn embed_code_snippet(
+        &self,
+        code: &str,
+        language: Option<&str>,
+        file_path: &str,
+    ) -> Result<Vec<f32>> {
+        // Preprocess code
+        let processed_code = crate::preprocessing::preprocess_code_snippet(code, language, file_path);
+
+        if processed_code.is_empty() {
+            return Err(SemanticError::PreprocessingError(
+                "Empty code after preprocessing".to_string(),
+            ));
+        }
+
+        // Generate embedding
+        self.embed_text(&processed_code).await
+    }
+
+    /// Generate embeddings for multiple code snippets in batch
+    pub async fn embed_code_snippets(
+        &self,
+        snippets: Vec<(&str, Option<&str>, &str)>, // (code, language, file_path)
+    ) -> Result<Vec<Vec<f32>>> {
+        if snippets.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Preprocess all snippets
+        let processed: Vec<String> = snippets
+            .iter()
+            .map(|(code, lang, path)| {
+                crate::preprocessing::preprocess_code_snippet(code, *lang, path)
+            })
+            .collect();
+
+        // Generate embeddings in batch
+        self.embed_batch(processed).await
+    }
 }
 
 /// Calculate cosine similarity between two vectors

@@ -5,6 +5,7 @@
 // finding repositories by use case rather than just keywords.
 
 pub mod bm25;
+pub mod code_reranker;
 pub mod embeddings;
 pub mod error;
 pub mod index;
@@ -14,11 +15,12 @@ pub mod search;
 
 // Re-export main types
 pub use bm25::{score_keyword_results, BM25Scorer};
+pub use code_reranker::CodeReranker;
 pub use embeddings::{cosine_similarity, EmbeddingGenerator};
 pub use error::{Result, SemanticError};
 pub use index::VectorIndex;
 pub use models::{EmbeddingEntry, IndexStats, SemanticConfig, SemanticSearchResult};
-pub use preprocessing::{preprocess_query, preprocess_repository};
+pub use preprocessing::{extract_code_keywords, preprocess_code_snippet, preprocess_query, preprocess_repository};
 pub use search::SemanticSearchEngine;
 
 #[cfg(test)]
