@@ -534,6 +534,10 @@ pub struct CodeSearchRepository {
     pub owner: Owner,
     #[serde(default)]
     pub private: bool,
+    #[serde(default)]
+    pub stargazers_count: u32,
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 /// Text match containing the actual code snippet
