@@ -298,6 +298,12 @@ impl GitHubClient {
                         "Response snippet: {}",
                         &response_text[..response_text.len().min(1000)]
                     );
+                    // Save full response to file for debugging
+                    if let Err(write_err) = std::fs::write("/tmp/github_response_debug.json", &response_text) {
+                        tracing::warn!("Failed to write debug response: {}", write_err);
+                    } else {
+                        tracing::error!("Full response saved to /tmp/github_response_debug.json");
+                    }
                     GitHubError::ParseError(e)
                 })?;
             Ok(search_result.items)
@@ -513,8 +519,10 @@ pub struct CodeSearchItem {
     pub name: String,
     pub path: String,
     pub sha: String,
-    pub url: String,
-    pub git_url: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub git_url: Option<String>,
     pub html_url: String,
     pub repository: CodeSearchRepository,
     #[serde(default)]
@@ -530,7 +538,8 @@ pub struct CodeSearchRepository {
     pub full_name: String,
     #[serde(default)]
     pub description: Option<String>,
-    pub html_url: String,
+    #[serde(default)]
+    pub html_url: Option<String>,
     pub owner: Owner,
     #[serde(default)]
     pub private: bool,
@@ -538,6 +547,11 @@ pub struct CodeSearchRepository {
     pub stargazers_count: u32,
     #[serde(default)]
     pub language: Option<String>,
+    // Additional fields that might be null or missing
+    #[serde(default)]
+    pub fork: Option<bool>,
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 /// Text match containing the actual code snippet
@@ -557,7 +571,8 @@ pub struct TextMatch {
 /// Individual match within a text fragment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Match {
-    pub text: String,
+    #[serde(default)]
+    pub text: Option<String>,
     pub indices: Vec<usize>,
 }
 
@@ -592,7 +607,18 @@ pub struct GitHubRepo {
 pub struct Owner {
     pub login: String,
     pub id: u64,
-    pub avatar_url: String,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub gravatar_id: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub html_url: Option<String>,
+    // Flatten any additional unknown fields
+    #[serde(flatten)]
+    #[serde(default)]
+    pub additional_fields: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
