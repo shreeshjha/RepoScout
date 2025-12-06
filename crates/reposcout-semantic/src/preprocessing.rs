@@ -74,10 +74,12 @@ pub fn extract_code_keywords(query: &str) -> String {
 
 /// Preprocess code snippet for embedding
 /// Combines documentation, signature, and code body
+/// NOW ENHANCED: Includes AST information when available
 pub fn preprocess_code_snippet(
     code: &str,
     language: Option<&str>,
     file_path: &str,
+    ast_metadata: Option<&reposcout_core::models::AstMetadata>,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -90,6 +92,28 @@ pub fn preprocess_code_snippet(
     if let Some(filename) = std::path::Path::new(file_path).file_name() {
         if let Some(name) = filename.to_str() {
             parts.push(name.replace('_', " ").replace('-', " "));
+        }
+    }
+
+    // NEW: Add AST structure summary
+    if let Some(ast) = ast_metadata {
+        if ast.parse_success {
+            if !ast.structure_summary.is_empty() {
+                parts.push(ast.structure_summary.clone());
+            }
+
+            // Add function names for semantic context
+            for func in &ast.functions {
+                parts.push(format!("function {}", func.name));
+                if func.is_async {
+                    parts.push("async".to_string());
+                }
+            }
+
+            // Add type names
+            for type_def in &ast.types {
+                parts.push(format!("{:?} {}", type_def.kind, type_def.name).to_lowercase());
+            }
         }
     }
 

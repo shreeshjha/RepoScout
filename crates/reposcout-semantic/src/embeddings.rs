@@ -217,9 +217,15 @@ impl EmbeddingGenerator {
         code: &str,
         language: Option<&str>,
         file_path: &str,
+        ast_metadata: Option<&reposcout_core::models::AstMetadata>,
     ) -> Result<Vec<f32>> {
-        // Preprocess code
-        let processed_code = crate::preprocessing::preprocess_code_snippet(code, language, file_path);
+        // Preprocess code WITH AST context
+        let processed_code = crate::preprocessing::preprocess_code_snippet(
+            code,
+            language,
+            file_path,
+            ast_metadata,
+        );
 
         if processed_code.is_empty() {
             return Err(SemanticError::PreprocessingError(
@@ -234,7 +240,7 @@ impl EmbeddingGenerator {
     /// Generate embeddings for multiple code snippets in batch
     pub async fn embed_code_snippets(
         &self,
-        snippets: Vec<(&str, Option<&str>, &str)>, // (code, language, file_path)
+        snippets: Vec<(&str, Option<&str>, &str, Option<&reposcout_core::models::AstMetadata>)>, // (code, language, file_path, ast_metadata)
     ) -> Result<Vec<Vec<f32>>> {
         if snippets.is_empty() {
             return Ok(Vec::new());
@@ -243,8 +249,8 @@ impl EmbeddingGenerator {
         // Preprocess all snippets
         let processed: Vec<String> = snippets
             .iter()
-            .map(|(code, lang, path)| {
-                crate::preprocessing::preprocess_code_snippet(code, *lang, path)
+            .map(|(code, lang, path, ast)| {
+                crate::preprocessing::preprocess_code_snippet(code, *lang, path, *ast)
             })
             .collect();
 
