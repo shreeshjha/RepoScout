@@ -11,6 +11,7 @@ homepage.workspace = true
 [dependencies]
 # Core dependencies
 reposcout-core = { path = "../reposcout-core" }
+reposcout-ast = { path = "../reposcout-ast" }
 
 # Embedding and ML
 # Using version 4 to avoid ort compatibility issues

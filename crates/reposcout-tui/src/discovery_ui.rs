@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
@@ -228,34 +228,33 @@ fn render_topics(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(""),
     ])];
 
-    for (i, (topic, name)) in topics.iter().enumerate() {
-        let is_selected = i == app.discovery_cursor;
-
-        let style = if is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
-        };
-
-        let indicator = if is_selected { "▶ " } else { "  " };
-
+    for (topic, name) in topics.iter() {
         items.push(ListItem::new(vec![Line::from(vec![
-            Span::styled(format!("{}{}", indicator, name), style),
+            Span::styled(format!("  {}", name), Style::default().fg(Color::White)),
             Span::raw(" "),
             Span::styled(format!("({})", topic), Style::default().fg(Color::DarkGray)),
         ])]));
     }
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Topics")
-            .border_style(Style::default().fg(Color::Cyan)),
-    );
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Topics")
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
 
-    frame.render_widget(list, area);
+    // Create list state with selection (offset by 1 for header item)
+    let mut list_state = ListState::default();
+    list_state.select(Some(app.discovery_cursor + 1));
+
+    frame.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn render_awesome_lists(frame: &mut Frame, app: &App, area: Rect) {
@@ -276,35 +275,37 @@ fn render_awesome_lists(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(""),
     ])];
 
-    for (i, (repo, name)) in awesome_lists.iter().enumerate() {
-        let is_selected = i == app.discovery_cursor;
-
-        let style = if is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
-        };
-
-        let indicator = if is_selected { "▶ " } else { "  " };
-
+    for (repo, name) in awesome_lists.iter() {
         items.push(ListItem::new(vec![
-            Line::from(vec![Span::styled(format!("{}{}", indicator, name), style)]),
+            Line::from(vec![Span::styled(
+                format!("  {}", name),
+                Style::default().fg(Color::White),
+            )]),
             Line::from(vec![
-                Span::raw("  "),
+                Span::raw("    "),
                 Span::styled(*repo, Style::default().fg(Color::DarkGray)),
             ]),
             Line::from(""),
         ]));
     }
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Awesome Lists")
-            .border_style(Style::default().fg(Color::Cyan)),
-    );
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Awesome Lists")
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
 
-    frame.render_widget(list, area);
+    // Create list state with selection (offset by 1 for header item)
+    let mut list_state = ListState::default();
+    list_state.select(Some(app.discovery_cursor + 1));
+
+    frame.render_stateful_widget(list, area, &mut list_state);
 }

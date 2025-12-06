@@ -51,6 +51,101 @@ pub fn preprocess_query(query: &str) -> String {
     truncate_to_tokens(&cleaned, MAX_TOKENS)
 }
 
+/// Extract keywords from natural language query for code search
+/// Converts "function that parses command line arguments" → "parse command line arguments function"
+pub fn extract_code_keywords(query: &str) -> String {
+    // Common stop words to remove for code search
+    let stop_words = [
+        "a", "an", "the", "that", "which", "who", "what", "where", "when", "how",
+        "to", "for", "of", "in", "on", "at", "from", "with", "by", "is", "are",
+        "was", "were", "be", "been", "being", "have", "has", "had", "do", "does",
+        "did", "will", "would", "should", "could", "may", "might", "must", "can",
+        "this", "these", "those", "i", "you", "he", "she", "it", "we", "they",
+    ];
+
+    let cleaned = clean_text(query);
+    let words: Vec<&str> = cleaned
+        .split_whitespace()
+        .filter(|word| !stop_words.contains(word))
+        .collect();
+
+    words.join(" ")
+}
+
+/// Preprocess code snippet for embedding
+/// Combines documentation, signature, and code body
+/// NOW ENHANCED: Includes AST information when available
+pub fn preprocess_code_snippet(
+    code: &str,
+    language: Option<&str>,
+    file_path: &str,
+    ast_metadata: Option<&reposcout_core::models::AstMetadata>,
+) -> String {
+    let mut parts = Vec::new();
+
+    // Add language context
+    if let Some(lang) = language {
+        parts.push(lang.to_lowercase());
+    }
+
+    // Extract filename (can provide context about purpose)
+    if let Some(filename) = std::path::Path::new(file_path).file_name() {
+        if let Some(name) = filename.to_str() {
+            parts.push(name.replace('_', " ").replace('-', " "));
+        }
+    }
+
+    // NEW: Add AST structure summary
+    if let Some(ast) = ast_metadata {
+        if ast.parse_success {
+            if !ast.structure_summary.is_empty() {
+                parts.push(ast.structure_summary.clone());
+            }
+
+            // Add function names for semantic context
+            for func in &ast.functions {
+                parts.push(format!("function {}", func.name));
+                if func.is_async {
+                    parts.push("async".to_string());
+                }
+            }
+
+            // Add type names
+            for type_def in &ast.types {
+                parts.push(format!("{:?} {}", type_def.kind, type_def.name).to_lowercase());
+            }
+        }
+    }
+
+    // Clean and add code
+    let cleaned_code = clean_code(code);
+    parts.push(cleaned_code);
+
+    // Combine all parts
+    let combined = parts.join(" ");
+    truncate_to_tokens(&combined, MAX_TOKENS)
+}
+
+/// Clean code by removing excessive whitespace while preserving structure
+fn clean_code(code: &str) -> String {
+    // Remove excessive blank lines
+    let lines: Vec<&str> = code
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+
+    // Normalize whitespace on each line
+    let normalized: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            let whitespace = Regex::new(r"\s+").unwrap();
+            whitespace.replace_all(line.trim(), " ").to_string()
+        })
+        .collect();
+
+    normalized.join(" ")
+}
+
 /// Clean text by removing special characters and normalizing whitespace
 fn clean_text(text: &str) -> String {
     // Remove URLs

@@ -100,12 +100,31 @@ impl SearchFilters {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CodeSearchFilters {
     pub language: Option<String>,
     pub repo: Option<String>,
     pub path: Option<String>,
     pub extension: Option<String>,
+    pub semantic: bool,
+    pub semantic_weight: f32,
+    pub ast: bool,
+    pub ast_weight: f32,
+}
+
+impl Default for CodeSearchFilters {
+    fn default() -> Self {
+        Self {
+            language: None,
+            repo: None,
+            path: None,
+            extension: None,
+            semantic: false,
+            semantic_weight: 0.7,
+            ast: false,
+            ast_weight: 0.3,
+        }
+    }
 }
 
 impl CodeSearchFilters {
@@ -940,6 +959,9 @@ impl App {
         self.show_code_filters = !self.show_code_filters;
         if self.show_code_filters {
             self.code_filter_cursor = 0;
+            self.input_mode = InputMode::Filtering;
+        } else {
+            self.input_mode = InputMode::Normal;
         }
     }
 
@@ -964,6 +986,63 @@ impl App {
             3 => self.code_filters.extension = None,
             _ => {}
         }
+    }
+
+    /// Enter editing mode for code filter
+    pub fn enter_editing_code_filter_mode(&mut self) {
+        self.input_mode = InputMode::EditingFilter;
+        // Load current filter value into edit buffer
+        self.code_filter_edit_buffer = match self.code_filter_cursor {
+            0 => self.code_filters.language.clone().unwrap_or_default(),
+            1 => self.code_filters.repo.clone().unwrap_or_default(),
+            2 => self.code_filters.path.clone().unwrap_or_default(),
+            3 => self.code_filters.extension.clone().unwrap_or_default(),
+            _ => String::new(),
+        };
+    }
+
+    /// Save code filter edit
+    pub fn save_code_filter_edit(&mut self) {
+        // Save the edit buffer to the actual filter
+        match self.code_filter_cursor {
+            0 => {
+                self.code_filters.language = if self.code_filter_edit_buffer.is_empty() {
+                    None
+                } else {
+                    Some(self.code_filter_edit_buffer.clone())
+                };
+            }
+            1 => {
+                self.code_filters.repo = if self.code_filter_edit_buffer.is_empty() {
+                    None
+                } else {
+                    Some(self.code_filter_edit_buffer.clone())
+                };
+            }
+            2 => {
+                self.code_filters.path = if self.code_filter_edit_buffer.is_empty() {
+                    None
+                } else {
+                    Some(self.code_filter_edit_buffer.clone())
+                };
+            }
+            3 => {
+                self.code_filters.extension = if self.code_filter_edit_buffer.is_empty() {
+                    None
+                } else {
+                    Some(self.code_filter_edit_buffer.clone())
+                };
+            }
+            _ => {}
+        }
+        self.code_filter_edit_buffer.clear();
+        self.input_mode = InputMode::Filtering;
+    }
+
+    /// Cancel code filter edit
+    pub fn cancel_code_filter_edit(&mut self) {
+        self.code_filter_edit_buffer.clear();
+        self.input_mode = InputMode::Filtering;
     }
 
     /// Toggle code preview mode (Code/Raw/FileInfo)

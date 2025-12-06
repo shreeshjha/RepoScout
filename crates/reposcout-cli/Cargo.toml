@@ -17,6 +17,7 @@ reposcout-cache = { path = "../reposcout-cache" }
 reposcout-tui = { path = "../reposcout-tui" }
 reposcout-api = { path = "../reposcout-api" }
 reposcout-semantic = { path = "../reposcout-semantic" }
+reposcout-ast = { path = "../reposcout-ast" }
 
 clap = { workspace = true }
 tokio = { workspace = true }
