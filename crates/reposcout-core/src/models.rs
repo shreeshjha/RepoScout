@@ -130,6 +130,9 @@ pub struct CodeSearchResult {
     pub matches: Vec<CodeMatch>,
     /// Repository stars (for sorting)
     pub repository_stars: u32,
+    /// AST metadata (when AST analysis is enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ast_metadata: Option<AstMetadata>,
 }
 
 /// A code match with line numbers and context
@@ -142,4 +145,98 @@ pub struct CodeMatch {
     /// Optional: surrounding context lines
     pub context_before: Vec<String>,
     pub context_after: Vec<String>,
+    /// Matched functions (when AST analysis is enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_functions: Option<Vec<String>>,
+    /// Matched types (when AST analysis is enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_types: Option<Vec<String>>,
+}
+
+/// AST metadata extracted from code
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AstMetadata {
+    /// Detected programming language
+    pub language: String,
+    /// Extracted functions/methods
+    pub functions: Vec<FunctionSignature>,
+    /// Extracted classes/structs/types
+    pub types: Vec<TypeDefinition>,
+    /// Import statements
+    pub imports: Vec<ImportStatement>,
+    /// Overall code structure summary
+    pub structure_summary: String,
+    /// Whether AST parsing was successful
+    pub parse_success: bool,
+    /// Parse error message if failed
+    pub parse_error: Option<String>,
+}
+
+/// Function or method signature
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionSignature {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Option<String>,
+    pub visibility: Visibility,
+    pub is_async: bool,
+    pub is_generic: bool,
+    pub doc_comment: Option<String>,
+    pub line_number: usize,
+}
+
+/// Function parameter
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Parameter {
+    pub name: String,
+    pub param_type: Option<String>,
+    pub is_optional: bool,
+}
+
+/// Visibility modifier
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Visibility {
+    Public,
+    Private,
+    Protected,
+    Internal,
+}
+
+/// Type definition (class, struct, interface, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeDefinition {
+    pub name: String,
+    pub kind: TypeKind,
+    pub fields: Vec<Field>,
+    pub methods: Vec<String>,
+    pub implements: Vec<String>,
+    pub doc_comment: Option<String>,
+    pub line_number: usize,
+}
+
+/// Type kind
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TypeKind {
+    Class,
+    Struct,
+    Interface,
+    Trait,
+    Enum,
+    Type,
+}
+
+/// Struct/class field
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Field {
+    pub name: String,
+    pub field_type: Option<String>,
+    pub visibility: Visibility,
+}
+
+/// Import statement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportStatement {
+    pub module: String,
+    pub items: Vec<String>,
+    pub is_wildcard: bool,
 }
