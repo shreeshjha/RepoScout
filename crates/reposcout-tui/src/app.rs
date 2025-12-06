@@ -108,6 +108,8 @@ pub struct CodeSearchFilters {
     pub extension: Option<String>,
     pub semantic: bool,
     pub semantic_weight: f32,
+    pub ast: bool,
+    pub ast_weight: f32,
 }
 
 impl Default for CodeSearchFilters {
@@ -119,6 +121,8 @@ impl Default for CodeSearchFilters {
             extension: None,
             semantic: false,
             semantic_weight: 0.7,
+            ast: false,
+            ast_weight: 0.3,
         }
     }
 }

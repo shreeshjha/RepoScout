@@ -194,8 +194,9 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
             // Get preview of first match
             let preview = if let Some(first_match) = result.matches.first() {
                 let content = first_match.content.trim();
-                let truncated = if content.len() > 60 {
-                    format!("{}...", &content[..60])
+                let truncated = if content.chars().count() > 60 {
+                    let chars: String = content.chars().take(60).collect();
+                    format!("{}...", chars)
                 } else {
                     content.to_string()
                 };
@@ -261,9 +262,14 @@ pub fn render_code_results_list(frame: &mut Frame, app: &App, area: Rect) {
             Style::default()
                 .bg(Color::Rgb(60, 60, 80))
                 .add_modifier(Modifier::BOLD),
-        );
+        )
+        .highlight_symbol("▸ ");
 
-    frame.render_widget(list, list_area);
+    // Create a ListState and sync it with the current selection
+    let mut list_state = ratatui::widgets::ListState::default();
+    list_state.select(Some(app.code_selected_index));
+
+    frame.render_stateful_widget(list, list_area, &mut list_state);
 }
 
 /// Render code filter panel
@@ -290,7 +296,7 @@ fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                "(↑↓: navigate | Enter: edit | Del: clear | S: semantic | F: close)",
+                "(↑↓: navigate | Enter: edit | Del: clear | S: semantic | A: AST | F: close)",
                 Style::default().fg(Color::DarkGray),
             ),
         ]),
@@ -365,6 +371,36 @@ fn render_code_filter_panel(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Green),
             ),
             Span::styled(" semantic", Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+
+    // Add AST mode indicator
+    lines.push(Line::from(vec![
+        Span::styled("  AST: ", Style::default().fg(Color::Cyan)),
+        Span::styled(
+            if app.code_filters.ast {
+                "🌳 Enabled (structure-aware)"
+            } else {
+                "❌ Disabled"
+            },
+            if app.code_filters.ast {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            },
+        ),
+    ]));
+
+    if app.code_filters.ast {
+        lines.push(Line::from(vec![
+            Span::styled("  Weight: ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("{:.1}%", app.code_filters.ast_weight * 100.0),
+                Style::default().fg(Color::Green),
+            ),
+            Span::styled(" AST", Style::default().fg(Color::DarkGray)),
         ]));
     }
 

@@ -152,8 +152,9 @@ where
                                                     {
                                                         "Network error. Check your connection."
                                                             .to_string()
-                                                    } else if error_str.len() > 100 {
-                                                        format!("{}...", &error_str[..100])
+                                                    } else if error_str.chars().count() > 100 {
+                                                        let truncated: String = error_str.chars().take(100).collect();
+                                                        format!("{}...", truncated)
                                                     } else {
                                                         error_str
                                                     };
@@ -171,6 +172,8 @@ where
                                             let original_query = app.search_input.clone();
                                             let semantic = app.code_filters.semantic;
                                             let semantic_weight = app.code_filters.semantic_weight;
+                                            let ast = app.code_filters.ast;
+                                            let ast_weight = app.code_filters.ast_weight;
 
                                             // Determine search strategy
                                             let (search_query, api_limit) = if semantic {
@@ -204,6 +207,8 @@ where
                                                                 line_number: 1,
                                                                 context_before: vec![],
                                                                 context_after: vec![],
+                                                                matched_functions: None,
+                                                                matched_types: None,
                                                             })
                                                             .collect();
 
@@ -216,6 +221,8 @@ where
                                                                 line_number: 1,
                                                                 context_before: vec![],
                                                                 context_after: vec![],
+                                                                matched_functions: None,
+                                                                matched_types: None,
                                                             }]
                                                         } else {
                                                             matches
@@ -233,9 +240,11 @@ where
                                                             repository_url: item
                                                                 .repository
                                                                 .html_url
-                                                                .clone(),
+                                                                .clone()
+                                                                .unwrap_or_else(|| format!("https://github.com/{}", item.repository.full_name)),
                                                             matches,
                                                             repository_stars: item.repository.stargazers_count,
+                                                            ast_metadata: None,
                                                         });
                                                     }
                                                 }
@@ -260,8 +269,9 @@ where
                                                             .to_string()
                                                     } else {
                                                         // Truncate long error messages
-                                                        let short_msg = if error_str.len() > 100 {
-                                                            format!("{}...", &error_str[..100])
+                                                        let short_msg = if error_str.chars().count() > 100 {
+                                                            let truncated: String = error_str.chars().take(100).collect();
+                                                            format!("{}...", truncated)
                                                         } else {
                                                             error_str
                                                         };
@@ -279,24 +289,42 @@ where
 
                                             tracing::info!("Total code results before reranking: {}", all_results.len());
 
-                                            // Apply semantic re-ranking if enabled
-                                            let final_results = if semantic && !all_results.is_empty() {
+                                            // Apply semantic/AST re-ranking if enabled
+                                            let final_results = if (semantic || ast) && !all_results.is_empty() {
                                                 use reposcout_semantic::CodeReranker;
 
-                                                tracing::info!("Applying semantic re-ranking with weight: {}", semantic_weight);
+                                                if ast {
+                                                    tracing::info!("Applying AST-enhanced re-ranking (semantic: {}, ast: {})", semantic_weight, ast_weight);
+                                                } else {
+                                                    tracing::info!("Applying semantic re-ranking with weight: {}", semantic_weight);
+                                                }
+
                                                 match (async {
-                                                    let reranker = CodeReranker::new("BAAI/bge-small-en-v1.5".to_string());
+                                                    let reranker = if ast {
+                                                        CodeReranker::with_ast("BAAI/bge-small-en-v1.5".to_string())
+                                                    } else {
+                                                        CodeReranker::new("BAAI/bge-small-en-v1.5".to_string())
+                                                    };
                                                     reranker.initialize().await?;
-                                                    reranker.rerank_hybrid(&original_query, all_results.clone(), 30, semantic_weight).await
+
+                                                    if ast {
+                                                        use reposcout_ast::parse_query;
+                                                        let parsed = parse_query(&original_query);
+                                                        let filters = parsed.filters;
+                                                        let results = reranker.rerank_with_ast_filters(&original_query, all_results.clone(), &filters, 30, semantic_weight, ast_weight).await?;
+                                                        Ok::<Vec<reposcout_core::models::CodeSearchResult>, anyhow::Error>(results.into_iter().map(|(result, _, _, _)| result).collect())
+                                                    } else {
+                                                        let results = reranker.rerank_hybrid(&original_query, all_results.clone(), 30, semantic_weight).await?;
+                                                        Ok::<Vec<reposcout_core::models::CodeSearchResult>, anyhow::Error>(results.into_iter().map(|(result, _, _)| result).collect())
+                                                    }
                                                 }).await {
-                                                    Ok(reranked) => {
-                                                        let results: Vec<_> = reranked.into_iter().map(|(result, _, _)| result).collect();
-                                                        tracing::info!("Semantic re-ranking returned {} results", results.len());
+                                                    Ok(results) => {
+                                                        tracing::info!("Re-ranking returned {} results", results.len());
                                                         results
                                                     }
                                                     Err(e) => {
-                                                        tracing::warn!("Semantic re-ranking failed: {}", e);
-                                                        app.error_message = Some(format!("Semantic search error: {}", e));
+                                                        tracing::warn!("Re-ranking failed: {}", e);
+                                                        app.error_message = Some(format!("Search error: {}", e));
                                                         // Fall back to star-based sorting
                                                         all_results.sort_by(|a, b| b.repository_stars.cmp(&a.repository_stars));
                                                         all_results
@@ -463,6 +491,12 @@ where
                                 } else if app.filter_cursor == 4 {
                                     // Cycle sort options with 's' key in repo filters
                                     app.cycle_sort();
+                                }
+                            }
+                            KeyCode::Char('a') => {
+                                if app.show_code_filters {
+                                    // Toggle AST mode in code filters
+                                    app.code_filters.ast = !app.code_filters.ast;
                                 }
                             }
                             _ => {}
@@ -884,6 +918,20 @@ where
                                             "Semantic search ENABLED (natural language queries)"
                                         } else {
                                             "Semantic search DISABLED (exact text matching)"
+                                        };
+                                        app.set_temp_error(format!("{} (Press Esc to dismiss)", status));
+                                        terminal.clear()?;
+                                    }
+                                }
+                                KeyCode::Char('A') => {
+                                    // Toggle AST search mode (only in code search mode)
+                                    if app.search_mode == SearchMode::Code {
+                                        app.code_filters.ast = !app.code_filters.ast;
+                                        // Show feedback message
+                                        let status = if app.code_filters.ast {
+                                            "AST search ENABLED (structure-aware)"
+                                        } else {
+                                            "AST search DISABLED"
                                         };
                                         app.set_temp_error(format!("{} (Press Esc to dismiss)", status));
                                         terminal.clear()?;
@@ -1372,6 +1420,45 @@ where
                                         }
                                     }
                                 }
+                                KeyCode::Char('F') => {
+                                    if app.search_mode == SearchMode::Code {
+                                        // Toggle code filters in Code mode
+                                        app.toggle_code_filters();
+                                    } else if app.search_mode == SearchMode::Notifications {
+                                        // Toggle all/unread filter in notification mode
+                                        app.toggle_notification_filter();
+
+                                        // Refresh notifications with new filter
+                                        app.notifications_loading = true;
+                                        terminal.draw(|f| crate::ui::render(f, &mut app))?;
+
+                                        match github_client
+                                            .get_notifications(
+                                                app.notifications_show_all,
+                                                app.notifications_participating,
+                                                50,
+                                            )
+                                            .await
+                                        {
+                                            Ok(notifications) => {
+                                                app.notifications = notifications;
+                                                app.notifications_selected_index = 0;
+                                                app.notifications_loading = false;
+                                                app.error_message = None;
+                                            }
+                                            Err(e) => {
+                                                app.error_message = Some(format!(
+                                                    "Failed to fetch notifications: {}",
+                                                    e
+                                                ));
+                                                app.notifications_loading = false;
+                                            }
+                                        }
+                                    } else {
+                                        // Toggle repo filters in other modes
+                                        app.toggle_filters();
+                                    }
+                                }
                                 KeyCode::Char('b') => {
                                     // Toggle bookmark for current repository
                                     if let Some(repo) = app.selected_repository() {
@@ -1522,17 +1609,6 @@ where
                                             Err(e) => {
                                                 app.set_temp_error(e);
                                             }
-                                        }
-                                    }
-                                }
-                                KeyCode::Char('F') => {
-                                    // Toggle filters based on search mode
-                                    if app.search_mode == SearchMode::Code {
-                                        app.toggle_code_filters();
-                                    } else {
-                                        app.toggle_filters();
-                                        if app.show_filters {
-                                            app.enter_filter_mode();
                                         }
                                     }
                                 }

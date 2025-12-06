@@ -13,6 +13,7 @@ reposcout-api = { path = "../reposcout-api" }
 reposcout-cache = { path = "../reposcout-cache" }
 reposcout-deps = { path = "../reposcout-deps" }
 reposcout-semantic = { path = "../reposcout-semantic" }
+reposcout-ast = { path = "../reposcout-ast" }
 
 ratatui = { workspace = true }
 crossterm = { workspace = true }
