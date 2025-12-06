@@ -99,6 +99,22 @@ enum Commands {
         /// Semantic weight for hybrid ranking (0.0-1.0, default: 0.7)
         #[arg(long, default_value = "0.7")]
         semantic_weight: f32,
+
+        /// Enable AST-based code analysis
+        #[arg(long)]
+        ast: bool,
+
+        /// AST score weight for hybrid ranking (0.0-1.0, default: 0.3)
+        #[arg(long, default_value = "0.3")]
+        ast_weight: f32,
+
+        /// Filter by function name (requires --ast)
+        #[arg(long)]
+        function_name: Option<String>,
+
+        /// Filter by class/struct name (requires --ast)
+        #[arg(long)]
+        class_name: Option<String>,
     },
     /// Show repository details
     Show {
@@ -357,6 +373,10 @@ async fn main() -> anyhow::Result<()> {
             extension,
             semantic,
             semantic_weight,
+            ast,
+            ast_weight,
+            function_name,
+            class_name,
         }) => {
             search_code(
                 &query,
@@ -367,6 +387,10 @@ async fn main() -> anyhow::Result<()> {
                 extension,
                 semantic,
                 semantic_weight,
+                ast,
+                ast_weight,
+                function_name,
+                class_name,
                 cli.github_token,
                 cli.gitlab_token,
                 cli.bitbucket_username,
@@ -1124,6 +1148,10 @@ async fn search_code(
     extension: Option<String>,
     semantic: bool,
     semantic_weight: f32,
+    ast: bool,
+    ast_weight: f32,
+    function_name: Option<String>,
+    class_name: Option<String>,
     github_token: Option<String>,
     gitlab_token: Option<String>,
     bitbucket_username: Option<String>,
@@ -1132,21 +1160,60 @@ async fn search_code(
     use reposcout_api::{GitHubClient, GitLabClient};
     use reposcout_core::models::{CodeMatch, CodeSearchResult, Platform};
 
+    // Parse query for AST filters if AST is enabled
+    let (clean_query, ast_filters) = if ast {
+        use reposcout_ast::{parse_query, AstQueryFilters};
+
+        let parsed = parse_query(query);
+        println!("🌳 AST query parsing enabled");
+        println!("   Original query: \"{}\"", query);
+        println!("   Cleaned query: \"{}\"", parsed.query);
+        if parsed.filters.has_filters() {
+            println!("   Detected filters:");
+            if let Some(ref fn_name) = parsed.filters.function_name {
+                println!("      - Function: {}", fn_name);
+            }
+            if let Some(ref class_name) = parsed.filters.class_name {
+                println!("      - Class/Type: {}", class_name);
+            }
+            if parsed.filters.is_async == Some(true) {
+                println!("      - Async functions only");
+            }
+        }
+        println!();
+
+        // Merge with CLI flags
+        let mut filters = parsed.filters;
+        let cli_filters = AstQueryFilters {
+            function_name,
+            class_name,
+            is_async: None,
+            is_public: None,
+            is_generic: None,
+        };
+        filters.merge(&cli_filters);
+
+        (parsed.query, filters)
+    } else {
+        use reposcout_ast::AstQueryFilters;
+        (query.to_string(), AstQueryFilters::default())
+    };
+
     // Determine search strategy
     let (search_query, api_limit) = if semantic {
         // For semantic search, extract keywords and fetch more results for re-ranking
         use reposcout_semantic::extract_code_keywords;
 
-        let keywords = extract_code_keywords(query);
+        let keywords = extract_code_keywords(&clean_query);
         println!("🔍 Semantic search mode");
-        println!("   Natural language query: \"{}\"", query);
+        println!("   Natural language query: \"{}\"", &clean_query);
         println!("   Extracted keywords: \"{}\"", keywords);
         println!();
 
         // Fetch more results (3-5x) for better re-ranking
         (keywords, limit * 4)
     } else {
-        (query.to_string(), limit)
+        (clean_query.clone(), limit)
     };
 
     // Build enhanced query with filters
@@ -1189,6 +1256,8 @@ async fn search_code(
                                 line_number: 1,
                                 context_before: vec![],
                                 context_after: vec![],
+                                matched_functions: None,
+                                matched_types: None,
                             }
                         })
                         .collect();
@@ -1200,6 +1269,8 @@ async fn search_code(
                             line_number: 1,
                             context_before: vec![],
                             context_after: vec![],
+                            matched_functions: None,
+                            matched_types: None,
                         }]
                     } else {
                         matches
@@ -1211,9 +1282,11 @@ async fn search_code(
                         file_path: item.path.clone(),
                         language: item.repository.language.clone(),
                         file_url: item.html_url.clone(),
-                        repository_url: item.repository.html_url.clone(),
+                        repository_url: item.repository.html_url.clone()
+                            .unwrap_or_else(|| format!("https://github.com/{}", item.repository.full_name)),
                         matches,
                         repository_stars: item.repository.stargazers_count,
+                        ast_metadata: None,
                     });
                 }
                 tracing::info!("Found {} results from GitHub", all_results.len());
@@ -1254,6 +1327,8 @@ async fn search_code(
                         line_number: item.startline,
                         context_before: vec![],
                         context_after: vec![],
+                        matched_functions: None,
+                        matched_types: None,
                     }];
 
                     all_results.push(CodeSearchResult {
@@ -1264,6 +1339,7 @@ async fn search_code(
                         file_url: format!("https://gitlab.com/projects/{}", item.project_id),
                         repository_url: format!("https://gitlab.com/projects/{}", item.project_id),
                         matches,
+                        ast_metadata: None,
                         repository_stars: 0,
                     });
                 }
@@ -1314,25 +1390,52 @@ async fn search_code(
         return Ok(());
     }
 
-    // Apply semantic re-ranking if enabled
-    let final_results: Vec<(CodeSearchResult, Option<f32>)> = if semantic {
+    // Apply semantic/AST re-ranking if enabled
+    let final_results: Vec<(CodeSearchResult, Option<f32>)> = if semantic || ast {
         use reposcout_semantic::CodeReranker;
 
-        println!("🧠 Re-ranking results using semantic similarity...\n");
+        if ast {
+            println!("🌳 AST-enhanced semantic search enabled\n");
+        } else {
+            println!("🧠 Re-ranking results using semantic similarity...\n");
+        }
 
-        // Initialize semantic re-ranker
-        let reranker = CodeReranker::new("BAAI/bge-small-en-v1.5".to_string());
+        // Initialize semantic re-ranker (with AST if enabled)
+        let reranker = if ast {
+            CodeReranker::with_ast("BAAI/bge-small-en-v1.5".to_string())
+        } else {
+            CodeReranker::new("BAAI/bge-small-en-v1.5".to_string())
+        };
         reranker.initialize().await?;
 
-        // Re-rank results
-        let reranked = reranker
-            .rerank_hybrid(query, all_results, limit, semantic_weight)
-            .await?;
+        // Re-rank results (with AST filtering and scoring if enabled)
+        if ast {
+            let results = reranker
+                .rerank_with_ast_filters(
+                    query,
+                    all_results,
+                    &ast_filters,
+                    limit,
+                    semantic_weight,
+                    ast_weight,
+                )
+                .await?;
 
-        reranked
-            .into_iter()
-            .map(|(result, semantic_score, _hybrid_score)| (result, Some(semantic_score)))
-            .collect()
+            // Convert 4-tuple to 2-tuple for display
+            results
+                .into_iter()
+                .map(|(result, semantic_score, _ast_score, _hybrid_score)| (result, Some(semantic_score)))
+                .collect()
+        } else {
+            let results = reranker
+                .rerank_hybrid(query, all_results, limit, semantic_weight)
+                .await?;
+
+            results
+                .into_iter()
+                .map(|(result, semantic_score, _hybrid_score)| (result, Some(semantic_score)))
+                .collect()
+        }
     } else {
         // Sort by repository stars (traditional ranking)
         all_results.sort_by(|a, b| b.repository_stars.cmp(&a.repository_stars));
@@ -1365,8 +1468,10 @@ async fn search_code(
 
         // Show first match snippet
         if let Some(first_match) = result.matches.first() {
-            let snippet = if first_match.content.len() > 150 {
-                format!("{}...", &first_match.content[..150])
+            let snippet = if first_match.content.chars().count() > 150 {
+                // Use char-aware truncation to avoid splitting multi-byte characters
+                let truncated: String = first_match.content.chars().take(150).collect();
+                format!("{}...", truncated)
             } else {
                 first_match.content.clone()
             };
@@ -1466,8 +1571,9 @@ async fn show_trending(
 
         println!("{}. {} ({})", i + 1, repo.full_name, repo.platform);
         if let Some(desc) = &repo.description {
-            let short_desc = if desc.len() > 100 {
-                format!("{}...", &desc[..100])
+            let short_desc = if desc.chars().count() > 100 {
+                let truncated: String = desc.chars().take(100).collect();
+                format!("{}...", truncated)
             } else {
                 desc.clone()
             };
